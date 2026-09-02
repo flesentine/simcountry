@@ -4,6 +4,7 @@ export type ResourceLedger = Record<Resource, number>;
 
 export type Terrain = "plains" | "forest" | "hills" | "mountains" | "desert";
 export type RouteMode = "land" | "sea";
+export type InfrastructureKind = "road" | "rail" | "shipping_lane";
 
 export interface Relation {
   trust: number;
@@ -68,8 +69,14 @@ export interface TradeRoute {
   fromCityId: string;
   toCityId: string;
   distance: number;
+  baseCapacity: number;
   capacity: number;
   usedThisWeek: number;
+  infrastructure: InfrastructureKind;
+  level: number;
+  condition: number;
+  chokepoint: boolean;
+  blockedBy: string | null;
 }
 
 export interface Geography {
@@ -89,6 +96,14 @@ export interface War {
   startWeek: number;
   casualtiesA: number;
   casualtiesB: number;
+  frontCellId: string | null;
+  supplyA: number;
+  supplyB: number;
+  momentum: number;
+  capturedA: number;
+  capturedB: number;
+  lastCaptureWeek: number;
+  blockadeRouteIds: string[];
 }
 
 export interface Truce {

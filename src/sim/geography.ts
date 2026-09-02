@@ -356,27 +356,47 @@ export function findFrontCell(world: WorldState, attackerId: string, defenderId:
   const cells = world.geography.cells;
   const byId = new Map(cells.map((cell) => [cell.id, cell]));
   const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
-  const defenderCells = cells.filter((cell) => cell.ownerId === defenderId && !capitalCells.has(cell.id));
 
   if ((world.geography.adjacency[attackerId] ?? []).includes(defenderId)) {
-    const border = defenderCells.filter((cell) => neighborCoordinates(cell.x, cell.y).some(([x, y]) => byId.get(cellId(x, y))?.ownerId === attackerId));
-    const landFront = border.sort((a, b) => (a.elevation - b.elevation) || a.id.localeCompare(b.id))[0];
-    if (landFront) return landFront;
+    let bestDefenderFront: WorldCell | null = null;
+    let bestAttackerFront: WorldCell | null = null;
+    for (const cell of cells) {
+      if (cell.ownerId !== defenderId && cell.ownerId !== attackerId) continue;
+      const touchesEnemy = neighborCoordinates(cell.x, cell.y).some(([x, y]) => {
+        const other = byId.get(cellId(x, y));
+        return cell.ownerId === defenderId ? other?.ownerId === attackerId : other?.ownerId === defenderId;
+      });
+      if (!touchesEnemy) continue;
+      if (cell.ownerId === defenderId && !capitalCells.has(cell.id)) {
+        if (!bestDefenderFront || cell.elevation < bestDefenderFront.elevation || (cell.elevation === bestDefenderFront.elevation && cell.id < bestDefenderFront.id)) bestDefenderFront = cell;
+      } else if (cell.ownerId === attackerId) {
+        if (!bestAttackerFront || cell.elevation < bestAttackerFront.elevation || (cell.elevation === bestAttackerFront.elevation && cell.id < bestAttackerFront.id)) bestAttackerFront = cell;
+      }
+    }
+    return bestDefenderFront ?? bestAttackerFront;
   }
 
   const attackerPorts = world.geography.cities.filter((city) => city.countryId === attackerId && city.port);
-  const coastal = defenderCells.filter((cell) => cell.coastal);
-  if (!attackerPorts.length || !coastal.length) return null;
-  return coastal.sort((a, b) => {
-    const da = Math.min(...attackerPorts.map((port) => distance(a, port)));
-    const db = Math.min(...attackerPorts.map((port) => distance(b, port)));
-    return da - db;
-  })[0] ?? null;
+  if (!attackerPorts.length) return null;
+  let bestCoastal: WorldCell | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const cell of cells) {
+    if (cell.ownerId !== defenderId || !cell.coastal || capitalCells.has(cell.id)) continue;
+    const d = Math.min(...attackerPorts.map((port) => distance(cell, port)));
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestCoastal = cell;
+    }
+  }
+  return bestCoastal;
 }
 
 export function hasStrategicAccess(world: WorldState, a: string, b: string) {
-  const physicallyConnected = (world.geography.adjacency[a] ?? []).includes(b) || getTradeRoutes(world, a, b).some((route) => route.mode === "sea");
-  return physicallyConnected && findFrontCell(world, a, b) !== null;
+  if ((world.geography.adjacency[a] ?? []).includes(b)) return true;
+  if (!getTradeRoutes(world, a, b).some((route) => route.mode === "sea")) return false;
+  const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
+  const hasPort = world.geography.cities.some((city) => city.countryId === a && city.port);
+  return hasPort && world.geography.cells.some((cell) => cell.ownerId === b && cell.coastal && !capitalCells.has(cell.id));
 }
 
 export function captureBorderRegion(world: WorldState, winnerId: string, loserId: string, preferredCellId?: string | null) {
@@ -385,7 +405,7 @@ export function captureBorderRegion(world: WorldState, winnerId: string, loserId
   const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
   let target = preferredCellId ? world.geography.cells.find((cell) => cell.id === preferredCellId && cell.ownerId === loserId && !capitalCells.has(cell.id)) ?? null : null;
   if (!target) target = findFrontCell(world, winnerId, loserId);
-  if (!target || capitalCells.has(target.id)) return null;
+  if (!target || target.ownerId !== loserId || capitalCells.has(target.id)) return null;
 
   target.ownerId = winnerId;
   const capturedCity = world.geography.cities.find((city) => city.cellId === target!.id && !city.capital);

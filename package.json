@@ -1,0 +1,19 @@
+{
+  "name": "simcountry",
+  "private": true,
+  "version": "0.0.2",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run --exclude src/sim/stress.test.ts",
+    "stress": "vitest run src/sim/stress.test.ts",
+    "check": "npm run test && npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5",
+    "vitest": "^3.2.4"
+  }
+}

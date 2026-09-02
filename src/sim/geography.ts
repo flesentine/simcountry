@@ -352,10 +352,6 @@ export function getBestTradeRoute(world: WorldState, a: string, b: string): Trad
   return routes[0] ?? null;
 }
 
-export function hasStrategicAccess(world: WorldState, a: string, b: string) {
-  return (world.geography.adjacency[a] ?? []).includes(b) || getTradeRoutes(world, a, b).some((route) => route.mode === "sea");
-}
-
 export function findFrontCell(world: WorldState, attackerId: string, defenderId: string) {
   const cells = world.geography.cells;
   const byId = new Map(cells.map((cell) => [cell.id, cell]));
@@ -364,7 +360,8 @@ export function findFrontCell(world: WorldState, attackerId: string, defenderId:
 
   if ((world.geography.adjacency[attackerId] ?? []).includes(defenderId)) {
     const border = defenderCells.filter((cell) => neighborCoordinates(cell.x, cell.y).some(([x, y]) => byId.get(cellId(x, y))?.ownerId === attackerId));
-    return border.sort((a, b) => (a.elevation - b.elevation) || a.id.localeCompare(b.id))[0] ?? null;
+    const landFront = border.sort((a, b) => (a.elevation - b.elevation) || a.id.localeCompare(b.id))[0];
+    if (landFront) return landFront;
   }
 
   const attackerPorts = world.geography.cities.filter((city) => city.countryId === attackerId && city.port);
@@ -375,6 +372,11 @@ export function findFrontCell(world: WorldState, attackerId: string, defenderId:
     const db = Math.min(...attackerPorts.map((port) => distance(b, port)));
     return da - db;
   })[0] ?? null;
+}
+
+export function hasStrategicAccess(world: WorldState, a: string, b: string) {
+  const physicallyConnected = (world.geography.adjacency[a] ?? []).includes(b) || getTradeRoutes(world, a, b).some((route) => route.mode === "sea");
+  return physicallyConnected && findFrontCell(world, a, b) !== null;
 }
 
 export function captureBorderRegion(world: WorldState, winnerId: string, loserId: string, preferredCellId?: string | null) {

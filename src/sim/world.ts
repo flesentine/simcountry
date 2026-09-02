@@ -1,8 +1,9 @@
 import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
-import { generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
+import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
+import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -68,11 +69,11 @@ export function createInitialWorld(seed = 1978): WorldState {
 
   const geography = generateGeography(countries, seed);
   applyGeographicProduction(countries, geography);
-
   const world: WorldState = { seed, week: 0, nextEventId: 1, countries, geography, wars: [], truces: [], events: [] };
   const landCells = geography.cells.filter((cell) => cell.land).length;
   const ports = geography.cities.filter((city) => city.port).length;
-  addEvent(world, "world", `Eight sovereign states enter a ${geography.width}×${geography.height} physical world with ${landCells} land regions, ${geography.cities.length} cities, ${ports} ports and ${geography.routes.length} trade routes. Seed ${seed}.`);
+  const chokepoints = geography.routes.filter((route) => route.chokepoint).length;
+  addEvent(world, "world", `Eight sovereign states enter a ${geography.width}×${geography.height} physical world with ${landCells} land regions, ${geography.cities.length} cities, ${ports} ports, ${geography.routes.length} transport routes and ${chokepoints} maritime chokepoints. Seed ${seed}.`);
   return world;
 }
 
@@ -158,7 +159,8 @@ function runTrade(world: WorldState) {
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
     const routeCapacity = routeRemainingCapacity(route);
     const amount = Math.min(desired, available, routeCapacity);
-    const logistics = 1 + route.distance / 90 + (route.mode === "sea" ? 0.045 : 0.025);
+    const infrastructureEfficiency = 0.72 + route.level * 0.11 + route.condition / 500;
+    const logistics = 1 + route.distance / (90 * infrastructureEfficiency) + (route.mode === "sea" ? 0.045 : 0.025);
     const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics;
     if (amount < 2 || price > buyer.treasury) continue;
 
@@ -175,7 +177,7 @@ function runTrade(world: WorldState) {
     sellerRelation.tension = clamp(sellerRelation.tension - 0.06);
 
     if (world.week % 13 === 0) {
-      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a ${route.mode} route (${Math.round(route.distance)} distance, ${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).`);
+      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).`);
     }
   }
 }
@@ -223,6 +225,7 @@ function enforceStateBounds(world: WorldState) {
     country.military = Math.max(3, Math.min(country.militaryCapacity, country.military));
     country.readiness = clamp(country.readiness);
     country.stability = clamp(country.stability);
+    country.population = Math.max(4, country.population);
   }
 }
 
@@ -243,6 +246,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
     const relationB = defender.relations[attacker.id]!;
     relationA.tension = relationB.tension = 100;
     relationA.trust = relationB.trust = Math.min(relationA.trust, relationB.trust, 5);
+    const front = findFrontCell(world, attacker.id, defender.id);
     world.wars.push({
       id: `${attacker.id}-${defender.id}-${world.week}`,
       a: attacker.id,
@@ -251,8 +255,16 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       startWeek: world.week,
       casualtiesA: 0,
       casualtiesB: 0,
+      frontCellId: front?.id ?? null,
+      supplyA: 70,
+      supplyB: 70,
+      momentum: 0,
+      capturedA: 0,
+      capturedB: 0,
+      lastCaptureWeek: world.week,
+      blockadeRouteIds: [],
     });
-    addEvent(world, "war", `${attacker.name} declares war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}.`);
+    addEvent(world, "war", `${attacker.name} declares war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; the first operational front is ${front?.id ?? "offshore"}.`);
   }
 }
 
@@ -261,29 +273,55 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const war of world.wars) {
     const a = world.countries.find((country) => country.id === war.a)!;
     const b = world.countries.find((country) => country.id === war.b)!;
-    const powerA = a.military * (0.5 + a.readiness / 100);
-    const powerB = b.military * (0.5 + b.readiness / 100);
-    const lossA = Math.max(0.05, powerB / Math.max(25, powerA) * (0.22 + rng.next() * 0.35));
-    const lossB = Math.max(0.05, powerA / Math.max(25, powerB) * (0.22 + rng.next() * 0.35));
+    const supplyFactorA = 0.62 + war.supplyA / 145;
+    const supplyFactorB = 0.62 + war.supplyB / 145;
+    const powerA = a.military * (0.5 + a.readiness / 100) * supplyFactorA;
+    const powerB = b.military * (0.5 + b.readiness / 100) * supplyFactorB;
+    const lossA = Math.max(0.04, powerB / Math.max(25, powerA) * (0.18 + rng.next() * 0.30) * (1.15 - war.supplyA / 250));
+    const lossB = Math.max(0.04, powerA / Math.max(25, powerB) * (0.18 + rng.next() * 0.30) * (1.15 - war.supplyB / 250));
 
     a.military = Math.max(3, a.military - lossA);
     b.military = Math.max(3, b.military - lossB);
     war.casualtiesA += lossA * 920;
     war.casualtiesB += lossB * 920;
-    a.treasury -= powerA * 0.02;
-    b.treasury -= powerB * 0.02;
-    a.stability = clamp(a.stability - lossA * 0.055);
-    b.stability = clamp(b.stability - lossB * 0.055);
-    a.readiness = clamp(a.readiness - 0.06);
-    b.readiness = clamp(b.readiness - 0.06);
+    a.treasury -= powerA * 0.016;
+    b.treasury -= powerB * 0.016;
+    a.stability = clamp(a.stability - lossA * 0.05);
+    b.stability = clamp(b.stability - lossB * 0.05);
+    a.readiness = clamp(a.readiness - 0.045 - (war.supplyA < 35 ? 0.035 : 0));
+    b.readiness = clamp(b.readiness - 0.045 - (war.supplyB < 35 ? 0.035 : 0));
 
+    const battlefieldEdge = (powerA - powerB) / Math.max(1, powerA + powerB);
+    war.momentum = clamp(war.momentum + battlefieldEdge * 12 + (rng.next() - 0.5) * 1.4, -100, 100);
     const duration = world.week - war.startWeek;
+
+    if (duration > 8 && world.week - war.lastCaptureWeek >= 8 && Math.abs(war.momentum) > 12) {
+      const winner = war.momentum > 0 ? a : b;
+      const loser = war.momentum > 0 ? b : a;
+      const captureChance = clamp((Math.abs(war.momentum) - 8) / 95 + Math.abs(battlefieldEdge) * 0.28, 0.06, 0.38);
+      if (rng.next() < captureChance) {
+        const result = captureBorderRegion(world, winner.id, loser.id, war.frontCellId);
+        if (result) {
+          if (winner.id === war.a) war.capturedA += 1;
+          else war.capturedB += 1;
+          war.lastCaptureWeek = world.week;
+          war.momentum *= 0.58;
+          loser.stability = clamp(loser.stability - 0.45);
+          winner.stability = clamp(winner.stability + 0.12);
+          applyGeographicProduction(world.countries, world.geography);
+          war.frontCellId = findFrontCell(world, winner.id, loser.id)?.id ?? findFrontCell(world, loser.id, winner.id)?.id ?? null;
+          addEvent(world, "war", `${winner.name} captures region ${result.cell.id} from ${loser.name}${result.city ? `, including ${result.city.name}` : ""}. Borders and transport corridors are recalculated around the new front.`);
+        }
+      }
+    }
+
     const ratio = a.military / Math.max(1, b.military);
-    const exhausted = duration > 20 && (a.stability < 35 || b.stability < 35 || ratio > 2.1 || ratio < 0.48 || a.readiness < 18 || b.readiness < 18);
+    const exhausted = duration > 20 && (a.stability < 35 || b.stability < 35 || ratio > 2.1 || ratio < 0.48 || a.readiness < 18 || b.readiness < 18 || war.supplyA < 14 || war.supplyB < 14);
     const longWarPeace = duration > 52 && rng.next() < 0.018;
-    if (exhausted || longWarPeace) {
-      const winner = ratio >= 1 ? a : b;
-      const loser = ratio >= 1 ? b : a;
+    const lostAccess = !hasStrategicAccess(world, war.a, war.b);
+    if (exhausted || longWarPeace || lostAccess) {
+      const winner = (a.military * supplyFactorA) >= (b.military * supplyFactorB) ? a : b;
+      const loser = winner.id === a.id ? b : a;
       const reparations = Math.max(0, Math.min(35, loser.treasury * 0.08));
       loser.treasury -= reparations;
       winner.treasury += reparations;
@@ -291,6 +329,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       loser.relations[winner.id]!.tension = 72;
       winner.relations[loser.id]!.trust = Math.min(winner.relations[loser.id]!.trust, 18);
       loser.relations[winner.id]!.trust = Math.min(loser.relations[winner.id]!.trust, 14);
+      clearWarBlockades(world, war);
 
       const truceWeeks = 104 + Math.min(156, Math.floor(duration * 2));
       world.truces.push({
@@ -300,7 +339,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
         startWeek: world.week,
         endWeek: world.week + truceWeeks,
       });
-      addEvent(world, "peace", `${winner.name} emerges ahead as ${winner.name} and ${loser.name} sign a peace settlement and ${truceWeeks}-week truce after ${duration} weeks of war.`);
+      addEvent(world, "peace", `${winner.name} emerges ahead as ${winner.name} and ${loser.name} sign a peace settlement and ${truceWeeks}-week truce after ${duration} weeks of war. Territorial changes remain in force.`);
       ended.push(war.id);
     }
   }
@@ -313,17 +352,32 @@ export function tickWeek(world: WorldState): WorldState {
   resetRouteUsage(world);
   const rng = createRng(world.seed + world.week * 7919);
   runEconomy(world, rng);
+
+  const blockadeMessages = updateWarLogistics(world);
+  if (world.week % 13 === 0) for (const message of blockadeMessages) addEvent(world, "war", message);
+
   runTrade(world);
+  for (const message of runInfrastructure(world, rng)) addEvent(world, "economy", message);
   evolveRelations(world, rng);
   runWars(world, rng);
   maybeStartWars(world, rng);
+
+  const demographyMessages = runAnnualDemography(world);
+  if (demographyMessages.length) {
+    applyGeographicProduction(world.countries, world.geography);
+    for (const message of demographyMessages) addEvent(world, "politics", message);
+  }
+
   enforceStateBounds(world);
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;
     const busiest = [...world.geography.routes].sort((a, b) => b.usedThisWeek - a.usedThisWeek)[0];
+    const highestInfra = [...world.geography.routes].sort((a, b) => b.level - a.level || b.condition - a.condition)[0];
+    const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
     const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
-    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}`);
+    const infraNote = highestInfra ? ` Top infrastructure is level ${highestInfra.level} ${highestInfra.infrastructure}.` : "";
+    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade.`);
   }
   return world;
 }

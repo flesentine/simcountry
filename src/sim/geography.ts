@@ -198,6 +198,29 @@ function nearestCity(cities: City[], countryId: string, target: City) {
   return cities.filter((city) => city.countryId === countryId).sort((a, b) => distance(a, target) - distance(b, target))[0]!;
 }
 
+export function recalculateRouteCapacity(route: TradeRoute) {
+  const levelMultiplier = 1 + Math.max(0, route.level - 1) * 0.28;
+  const nominalCapacity = round(Math.max(2, route.baseCapacity * levelMultiplier * Math.max(0.35, route.condition / 100)));
+  route.capacity = Math.max(route.usedThisWeek, nominalCapacity);
+  return route.capacity;
+}
+
+function createRoute(input: Omit<TradeRoute, "baseCapacity" | "capacity" | "usedThisWeek" | "infrastructure" | "level" | "condition" | "chokepoint" | "blockedBy"> & { baseCapacity: number }): TradeRoute {
+  const route: TradeRoute = {
+    ...input,
+    baseCapacity: round(input.baseCapacity),
+    capacity: round(input.baseCapacity),
+    usedThisWeek: 0,
+    infrastructure: input.mode === "sea" ? "shipping_lane" : "road",
+    level: 1,
+    condition: 100,
+    chokepoint: false,
+    blockedBy: null,
+  };
+  recalculateRouteCapacity(route);
+  return route;
+}
+
 function buildRoutes(countries: Country[], adjacency: Record<string, string[]>, cities: City[]): TradeRoute[] {
   const routes: TradeRoute[] = [];
   const landPairs = new Set<string>();
@@ -207,17 +230,17 @@ function buildRoutes(countries: Country[], adjacency: Record<string, string[]>, 
       const key = pairKey(country.id, neighborId);
       if (landPairs.has(key)) continue;
       landPairs.add(key);
-      const aCapital = cities.find((city) => city.countryId === country.id && city.capital)!;
-      const bCapital = cities.find((city) => city.countryId === neighborId && city.capital)!;
+      const aCapital = cities.find((city) => city.countryId === country.id && city.capital);
+      const bCapital = cities.find((city) => city.countryId === neighborId && city.capital);
+      if (!aCapital || !bCapital) continue;
       const aHub = nearestCity(cities, country.id, bCapital);
       const bHub = nearestCity(cities, neighborId, aCapital);
       const routeDistance = Math.max(1, distance(aHub, bHub));
-      routes.push({
+      routes.push(createRoute({
         id: `land:${key}`, a: country.id, b: neighborId, mode: "land",
         fromCityId: aHub.id, toCityId: bHub.id, distance: round(routeDistance),
-        capacity: round(11 + (aHub.population + bHub.population) * 0.42 + 12 / routeDistance),
-        usedThisWeek: 0,
-      });
+        baseCapacity: 11 + (aHub.population + bHub.population) * 0.42 + 12 / routeDistance,
+      }));
     }
   }
 
@@ -233,14 +256,17 @@ function buildRoutes(countries: Country[], adjacency: Record<string, string[]>, 
       const best = pairs.sort((x, y) => x.d - y.d)[0]!;
       if (best.d > MAP_WIDTH * 0.82) continue;
       const key = pairKey(a.id, b.id);
-      routes.push({
+      routes.push(createRoute({
         id: `sea:${key}`, a: a.id, b: b.id, mode: "sea",
         fromCityId: best.aPort.id, toCityId: best.bPort.id, distance: round(Math.max(1, best.d)),
-        capacity: round(17 + (best.aPort.population + best.bPort.population) * 0.55),
-        usedThisWeek: 0,
-      });
+        baseCapacity: 17 + (best.aPort.population + best.bPort.population) * 0.55,
+      }));
     }
   }
+
+  const seaRoutes = routes.filter((route) => route.mode === "sea").sort((a, b) => a.distance - b.distance);
+  const chokepoints = Math.min(seaRoutes.length, Math.max(2, Math.ceil(seaRoutes.length * 0.2)));
+  for (const route of seaRoutes.slice(0, chokepoints)) route.chokepoint = true;
   return routes;
 }
 
@@ -253,6 +279,29 @@ export function generateGeography(countries: Country[], seed: number): Geography
   const cities = buildCities(seed, cells, countries, seeds);
   const routes = buildRoutes(countries, adjacency, cities);
   return { width: MAP_WIDTH, height: MAP_HEIGHT, cells, adjacency, cities, routes };
+}
+
+export function refreshGeography(world: WorldState) {
+  for (const city of world.geography.cities) {
+    if (city.capital) continue;
+    const cell = world.geography.cells.find((candidate) => candidate.id === city.cellId);
+    if (cell?.ownerId) city.countryId = cell.ownerId;
+  }
+
+  world.geography.adjacency = buildAdjacency(world.geography.cells, world.countries);
+  const oldRoutes = new Map(world.geography.routes.map((route) => [route.id, route]));
+  const rebuilt = buildRoutes(world.countries, world.geography.adjacency, world.geography.cities);
+  for (const route of rebuilt) {
+    const old = oldRoutes.get(route.id);
+    if (!old) continue;
+    route.level = old.level;
+    route.condition = old.condition;
+    route.infrastructure = route.mode === "land" && old.level >= 3 ? "rail" : route.mode === "sea" ? "shipping_lane" : "road";
+    route.blockedBy = old.blockedBy;
+    route.chokepoint = route.chokepoint || old.chokepoint;
+    recalculateRouteCapacity(route);
+  }
+  world.geography.routes = rebuilt;
 }
 
 export function deriveProduction(geography: Geography, countryId: string): ResourceLedger {
@@ -274,10 +323,14 @@ export function deriveProduction(geography: Geography, countryId: string): Resou
 }
 
 export function resetRouteUsage(world: WorldState) {
-  for (const route of world.geography.routes) route.usedThisWeek = 0;
+  for (const route of world.geography.routes) {
+    route.usedThisWeek = 0;
+    recalculateRouteCapacity(route);
+  }
 }
 
 export function routeRemainingCapacity(route: TradeRoute) {
+  if (route.blockedBy) return 0;
   return Math.max(0, route.capacity - route.usedThisWeek);
 }
 
@@ -288,15 +341,75 @@ export function getTradeRoutes(world: WorldState, a: string, b: string) {
 
 export function getBestTradeRoute(world: WorldState, a: string, b: string): TradeRoute | null {
   const routes = getTradeRoutes(world, a, b)
-    .filter((route) => routeRemainingCapacity(route) >= 2)
+    .filter((route) => !route.blockedBy && routeRemainingCapacity(route) >= 2)
     .sort((x, y) => {
-      const xCost = x.distance * (x.mode === "sea" ? 0.85 : 1);
-      const yCost = y.distance * (y.mode === "sea" ? 0.85 : 1);
+      const xQuality = Math.max(0.3, x.level * x.condition / 100);
+      const yQuality = Math.max(0.3, y.level * y.condition / 100);
+      const xCost = x.distance * (x.mode === "sea" ? 0.85 : 1) / xQuality;
+      const yCost = y.distance * (y.mode === "sea" ? 0.85 : 1) / yQuality;
       return xCost - yCost;
     });
   return routes[0] ?? null;
 }
 
+export function findFrontCell(world: WorldState, attackerId: string, defenderId: string) {
+  const cells = world.geography.cells;
+  const byId = new Map(cells.map((cell) => [cell.id, cell]));
+  const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
+
+  if ((world.geography.adjacency[attackerId] ?? []).includes(defenderId)) {
+    let bestDefenderFront: WorldCell | null = null;
+    let bestAttackerFront: WorldCell | null = null;
+    for (const cell of cells) {
+      if (cell.ownerId !== defenderId && cell.ownerId !== attackerId) continue;
+      const touchesEnemy = neighborCoordinates(cell.x, cell.y).some(([x, y]) => {
+        const other = byId.get(cellId(x, y));
+        return cell.ownerId === defenderId ? other?.ownerId === attackerId : other?.ownerId === defenderId;
+      });
+      if (!touchesEnemy) continue;
+      if (cell.ownerId === defenderId && !capitalCells.has(cell.id)) {
+        if (!bestDefenderFront || cell.elevation < bestDefenderFront.elevation || (cell.elevation === bestDefenderFront.elevation && cell.id < bestDefenderFront.id)) bestDefenderFront = cell;
+      } else if (cell.ownerId === attackerId) {
+        if (!bestAttackerFront || cell.elevation < bestAttackerFront.elevation || (cell.elevation === bestAttackerFront.elevation && cell.id < bestAttackerFront.id)) bestAttackerFront = cell;
+      }
+    }
+    return bestDefenderFront ?? bestAttackerFront;
+  }
+
+  const attackerPorts = world.geography.cities.filter((city) => city.countryId === attackerId && city.port);
+  if (!attackerPorts.length) return null;
+  let bestCoastal: WorldCell | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const cell of cells) {
+    if (cell.ownerId !== defenderId || !cell.coastal || capitalCells.has(cell.id)) continue;
+    const d = Math.min(...attackerPorts.map((port) => distance(cell, port)));
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestCoastal = cell;
+    }
+  }
+  return bestCoastal;
+}
+
 export function hasStrategicAccess(world: WorldState, a: string, b: string) {
-  return (world.geography.adjacency[a] ?? []).includes(b) || getTradeRoutes(world, a, b).some((route) => route.mode === "sea");
+  if ((world.geography.adjacency[a] ?? []).includes(b)) return true;
+  if (!getTradeRoutes(world, a, b).some((route) => route.mode === "sea")) return false;
+  const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
+  const hasPort = world.geography.cities.some((city) => city.countryId === a && city.port);
+  return hasPort && world.geography.cells.some((cell) => cell.ownerId === b && cell.coastal && !capitalCells.has(cell.id));
+}
+
+export function captureBorderRegion(world: WorldState, winnerId: string, loserId: string, preferredCellId?: string | null) {
+  const loserTerritory = world.geography.cells.filter((cell) => cell.ownerId === loserId);
+  if (loserTerritory.length <= 4) return null;
+  const capitalCells = new Set(world.geography.cities.filter((city) => city.capital).map((city) => city.cellId));
+  let target = preferredCellId ? world.geography.cells.find((cell) => cell.id === preferredCellId && cell.ownerId === loserId && !capitalCells.has(cell.id)) ?? null : null;
+  if (!target) target = findFrontCell(world, winnerId, loserId);
+  if (!target || target.ownerId !== loserId || capitalCells.has(target.id)) return null;
+
+  target.ownerId = winnerId;
+  const capturedCity = world.geography.cities.find((city) => city.cellId === target!.id && !city.capital);
+  if (capturedCity) capturedCity.countryId = winnerId;
+  refreshGeography(world);
+  return { cell: target, city: capturedCity ?? null };
 }

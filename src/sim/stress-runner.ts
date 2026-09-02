@@ -20,6 +20,9 @@ const finalReadiness: number[] = [];
 const finalTension: number[] = [];
 const finalTreasuries: number[] = [];
 const finalCityPopulations: number[] = [];
+const finalLegitimacy: number[] = [];
+const finalCohesion: number[] = [];
+const finalDissent: number[] = [];
 
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
@@ -49,6 +52,16 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(route.usedThisWeek >= 0 && route.usedThisWeek <= route.capacity + 0.0001, `seed ${seed} week ${world.week}: route capacity exceeded`);
       if (route.blockedBy) invariant(world.countries.some((country) => country.id === route.blockedBy), `seed ${seed} week ${world.week}: invalid blockading country`);
     }
+
+    for (const country of world.countries) {
+      const government = country.government;
+      invariant(Number.isFinite(government.legitimacy) && government.legitimacy >= 0 && government.legitimacy <= 100, `seed ${seed} week ${world.week}: ${country.name} legitimacy out of bounds`);
+      invariant(Number.isFinite(government.cohesion) && government.cohesion >= 0 && government.cohesion <= 100, `seed ${seed} week ${world.week}: ${country.name} cohesion out of bounds`);
+      invariant(Number.isFinite(government.dissent) && government.dissent >= 0 && government.dissent <= 100, `seed ${seed} week ${world.week}: ${country.name} dissent out of bounds`);
+      invariant(Object.values(government.agenda).every((value) => Number.isFinite(value) && value >= 0 && value <= 100), `seed ${seed} week ${world.week}: ${country.name} agenda out of bounds`);
+      invariant(government.objectives.length === 3, `seed ${seed} week ${world.week}: ${country.name} lost delegated objectives`);
+      invariant(government.objectives.every((objective) => Number.isFinite(objective.progress) && objective.progress >= 0 && objective.progress <= 100), `seed ${seed} week ${world.week}: ${country.name} objective progress invalid`);
+    }
   }
 
   let floorCountries = 0;
@@ -71,10 +84,19 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     invariant(country.military <= country.militaryCapacity + 0.0001, `seed ${seed}: ${country.name} military exceeds capacity`);
     invariant(country.treasury >= -country.population * 5 - 0.0001, `seed ${seed}: ${country.name} treasury below debt floor`);
     invariant(world.geography.cells.filter((cell) => cell.ownerId === country.id).length >= 4, `seed ${seed}: ${country.name} fell below territorial floor`);
+    invariant(Object.keys(country.government.ministries).length === 5, `seed ${seed}: ${country.name} ministry count changed`);
+    for (const ministry of Object.values(country.government.ministries)) {
+      invariant(ministry.competence >= 0 && ministry.competence <= 100, `seed ${seed}: ${country.name} ministry competence invalid`);
+      invariant(ministry.influence >= 0 && ministry.influence <= 100, `seed ${seed}: ${country.name} ministry influence invalid`);
+      invariant(ministry.loyalty >= 0 && ministry.loyalty <= 100, `seed ${seed}: ${country.name} ministry loyalty invalid`);
+    }
 
     if (country.military <= 3.0001) floorCountries++;
     finalReadiness.push(country.readiness);
     finalTreasuries.push(country.treasury);
+    finalLegitimacy.push(country.government.legitimacy);
+    finalCohesion.push(country.government.cohesion);
+    finalDissent.push(country.government.dissent);
   }
 
   for (const city of world.geography.cities) {
@@ -118,6 +140,9 @@ const avgReadiness = average(finalReadiness);
 const avgTension = average(finalTension);
 const maxTreasury = Math.max(...finalTreasuries);
 const maxCityPopulation = Math.max(...finalCityPopulations);
+const avgLegitimacy = average(finalLegitimacy);
+const avgCohesion = average(finalCohesion);
+const avgDissent = average(finalDissent);
 const summary = {
   worlds: SEEDS.length,
   yearsPerWorld: YEARS,
@@ -130,6 +155,9 @@ const summary = {
   avgTension,
   maxTreasury,
   maxCityPopulation,
+  avgLegitimacy,
+  avgCohesion,
+  avgDissent,
 };
 
 invariant(finalReadiness.length === SEEDS.length * 8, "stress gate did not evaluate all countries");
@@ -141,5 +169,8 @@ invariant(avgReadiness > 35, `average readiness ${avgReadiness} is too low`);
 invariant(avgTension < 70, `average tension ${avgTension} is too high`);
 invariant(maxTreasury < 5_000, `maximum treasury ${maxTreasury} exceeds the fiscal ceiling`);
 invariant(maxCityPopulation < 200, `maximum city population ${maxCityPopulation} is implausibly high`);
+invariant(avgLegitimacy > 18, `average legitimacy ${avgLegitimacy} collapsed`);
+invariant(avgCohesion > 18, `average cabinet cohesion ${avgCohesion} collapsed`);
+invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
 
 console.log(JSON.stringify(summary));

@@ -171,6 +171,7 @@ invariant(maxTreasury < 5_000, `maximum treasury ${maxTreasury} exceeds the fisc
 invariant(maxCityPopulation < 200, `maximum city population ${maxCityPopulation} is implausibly high`);
 invariant(avgLegitimacy > 18, `average legitimacy ${avgLegitimacy} collapsed`);
 invariant(avgCohesion > 18, `average cabinet cohesion ${avgCohesion} collapsed`);
+invariant(avgCohesion < 90, `average cabinet cohesion ${avgCohesion} saturated unrealistically`);
 invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
 
 console.log(JSON.stringify(summary));

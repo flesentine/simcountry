@@ -213,6 +213,15 @@ function evolveRelations(world: WorldState, rng: ReturnType<typeof createRng>) {
   }
 }
 
+function enforceStateBounds(world: WorldState) {
+  for (const country of world.countries) {
+    country.treasury = Math.max(-country.population * 5, country.treasury);
+    country.military = Math.max(3, Math.min(country.militaryCapacity, country.military));
+    country.readiness = clamp(country.readiness);
+    country.stability = clamp(country.stability);
+  }
+}
+
 function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (countryAtWar(world, attacker.id)) continue;
@@ -303,6 +312,7 @@ export function tickWeek(world: WorldState): WorldState {
   evolveRelations(world, rng);
   runWars(world, rng);
   maybeStartWars(world, rng);
+  enforceStateBounds(world);
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;

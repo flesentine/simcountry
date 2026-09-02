@@ -3,6 +3,7 @@ import type {
   Country,
   Geography,
   ResourceLedger,
+  Terrain,
   TradeRoute,
   WorldCell,
   WorldState,
@@ -36,7 +37,7 @@ function terrainAndDeposits(seed: number, x: number, y: number, elevation: numbe
   const moisture = cellNoise(seed, x, y, 11);
   const geology = cellNoise(seed, x, y, 29);
   const hydrocarbons = cellNoise(seed, x, y, 47);
-  const terrain = elevation > 0.82 ? "mountains"
+  const terrain: Terrain = elevation > 0.82 ? "mountains"
     : elevation > 0.66 ? "hills"
       : moisture > 0.68 ? "forest"
         : moisture < 0.23 ? "desert"

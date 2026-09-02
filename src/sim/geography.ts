@@ -200,7 +200,8 @@ function nearestCity(cities: City[], countryId: string, target: City) {
 
 export function recalculateRouteCapacity(route: TradeRoute) {
   const levelMultiplier = 1 + Math.max(0, route.level - 1) * 0.28;
-  route.capacity = round(Math.max(2, route.baseCapacity * levelMultiplier * Math.max(0.35, route.condition / 100)));
+  const nominalCapacity = route.baseCapacity * levelMultiplier * Math.max(0.35, route.condition / 100);
+  route.capacity = round(Math.max(2, route.usedThisWeek, nominalCapacity));
   return route.capacity;
 }
 
@@ -322,7 +323,10 @@ export function deriveProduction(geography: Geography, countryId: string): Resou
 }
 
 export function resetRouteUsage(world: WorldState) {
-  for (const route of world.geography.routes) route.usedThisWeek = 0;
+  for (const route of world.geography.routes) {
+    route.usedThisWeek = 0;
+    recalculateRouteCapacity(route);
+  }
 }
 
 export function routeRemainingCapacity(route: TradeRoute) {

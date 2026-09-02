@@ -71,7 +71,10 @@ export function warAppetite(attacker: Country, defender: Country): number {
   // reluctant cabinet can be dragged toward war by extreme grievance/power,
   // while a hawkish cabinet materially raises the probability.
   const cabinetSupport = 0.30 + government.agenda.defensePosture / 100 * 1.10;
-  const cohesionFactor = 0.80 + government.cohesion / 500;
+  // Cohesion affects execution at the margins, while defense posture supplies
+  // the main political authorization signal. A normally functioning cabinet
+  // stays close to the pre-Phase-3 conflict cadence instead of suppressing it.
+  const cohesionFactor = 0.94 + government.cohesion / 1000;
   const defenseCompetence = 0.88 + government.ministries.defense.competence / 700;
   const leaderDrive = 0.90 + (government.leader.traits.ambition + government.leader.traits.nationalism) / 1200;
   return grievance * confidence * (0.25 + attacker.policy.expansionism / 100) *

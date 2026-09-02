@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { captureBorderRegion, routeRemainingCapacity } from "./geography";
-import { runAnnualDemography, runInfrastructure } from "./strategy";
+import { calculateWarSupply, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
 import { createInitialWorld, tickWeek } from "./world";
 
 describe("SimCountry phase 2 strategic geography", () => {
@@ -24,6 +24,42 @@ describe("SimCountry phase 2 strategic geography", () => {
     expect(routeRemainingCapacity(route)).toBeGreaterThan(0);
     route.blockedBy = route.a;
     expect(routeRemainingCapacity(route)).toBe(0);
+  });
+
+  test("an active blockade directly reduces the weaker side's military supply", () => {
+    const world = createInitialWorld(1978);
+    const seaRoute = world.geography.routes.find((candidate) => candidate.mode === "sea")!;
+    const stronger = world.countries.find((country) => country.id === seaRoute.a)!;
+    const weaker = world.countries.find((country) => country.id === seaRoute.b)!;
+    stronger.military = 220;
+    stronger.readiness = 100;
+    weaker.military = 3;
+    weaker.readiness = 10;
+    const supplyBefore = calculateWarSupply(world, weaker, stronger.id);
+
+    world.wars.push({
+      id: "blockade-war",
+      a: stronger.id,
+      b: weaker.id,
+      attacker: stronger.id,
+      startWeek: 0,
+      casualtiesA: 0,
+      casualtiesB: 0,
+      frontCellId: null,
+      supplyA: 70,
+      supplyB: 70,
+      momentum: 0,
+      capturedA: 0,
+      capturedB: 0,
+      lastCaptureWeek: 0,
+      blockadeRouteIds: [],
+    });
+
+    updateWarLogistics(world);
+    const war = world.wars[0]!;
+    expect(war.blockadeRouteIds.length).toBeGreaterThan(0);
+    expect(world.geography.routes.some((route) => route.blockedBy === stronger.id)).toBe(true);
+    expect(war.supplyB).toBeLessThan(supplyBefore);
   });
 
   test("countries can upgrade transport infrastructure from treasury", () => {

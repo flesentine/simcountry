@@ -1,5 +1,7 @@
 import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
+import { generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
+import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
@@ -19,18 +21,6 @@ export function createInitialWorld(seed = 1978): WorldState {
   const countries: Country[] = NAMES.map((name, index) => {
     const population = rng.int(18, 92);
     const treasury = rng.int(130, 360);
-    const resources = {
-      food: rng.int(70, 190),
-      energy: rng.int(55, 190),
-      metals: rng.int(45, 160),
-      goods: rng.int(45, 145),
-    };
-    const production = {
-      food: rng.int(7, 18),
-      energy: rng.int(5, 18),
-      metals: rng.int(4, 14),
-      goods: rng.int(4, 13),
-    };
     const militaryCapacity = rng.int(35, 105);
     return {
       id: name.toLowerCase(),
@@ -38,8 +28,13 @@ export function createInitialWorld(seed = 1978): WorldState {
       color: COLORS[index],
       population,
       treasury,
-      resources,
-      production,
+      resources: {
+        food: rng.int(70, 190),
+        energy: rng.int(55, 190),
+        metals: rng.int(45, 160),
+        goods: rng.int(45, 145),
+      },
+      production: { food: 0, energy: 0, metals: 0, goods: 0 },
       needs: {
         food: population * 0.115,
         energy: population * 0.085,
@@ -71,8 +66,13 @@ export function createInitialWorld(seed = 1978): WorldState {
     }
   }
 
-  const world: WorldState = { seed, week: 0, nextEventId: 1, countries, wars: [], truces: [], events: [] };
-  addEvent(world, "world", `Eight sovereign states enter the simulation. Seed ${seed}.`);
+  const geography = generateGeography(countries, seed);
+  applyGeographicProduction(countries, geography);
+
+  const world: WorldState = { seed, week: 0, nextEventId: 1, countries, geography, wars: [], truces: [], events: [] };
+  const landCells = geography.cells.filter((cell) => cell.land).length;
+  const ports = geography.cities.filter((city) => city.port).length;
+  addEvent(world, "world", `Eight sovereign states enter a ${geography.width}×${geography.height} physical world with ${landCells} land regions, ${geography.cities.length} cities, ${ports} ports and ${geography.routes.length} trade routes. Seed ${seed}.`);
   return world;
 }
 
@@ -143,8 +143,9 @@ function runTrade(world: WorldState) {
   for (const buyer of world.countries) {
     const intent = getTradeIntent(buyer);
     if (!intent || buyer.treasury <= 1) continue;
-    const seller = chooseTradePartner(world, buyer, intent.resource);
-    if (!seller) continue;
+    const partner = chooseTradePartner(world, buyer, intent.resource);
+    if (!partner) continue;
+    const { seller, route } = partner;
 
     const relation = buyer.relations[seller.id];
     const sellerRelation = seller.relations[buyer.id];
@@ -155,14 +156,17 @@ function runTrade(world: WorldState) {
     const sellerReserveWeeks = 11 - seller.policy.commerce / 25;
     const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
-    const amount = Math.min(desired, available);
-    const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250);
+    const routeCapacity = routeRemainingCapacity(route);
+    const amount = Math.min(desired, available, routeCapacity);
+    const logistics = 1 + route.distance / 90 + (route.mode === "sea" ? 0.045 : 0.025);
+    const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics;
     if (amount < 2 || price > buyer.treasury) continue;
 
     buyer.treasury -= price;
     seller.treasury += price;
     buyer.resources[intent.resource] += amount;
     seller.resources[intent.resource] -= amount;
+    route.usedThisWeek += amount;
     relation.tradeVolume += price;
     sellerRelation.tradeVolume += price;
     relation.trust = clamp(relation.trust + 0.18);
@@ -171,7 +175,7 @@ function runTrade(world: WorldState) {
     sellerRelation.tension = clamp(sellerRelation.tension - 0.06);
 
     if (world.week % 13 === 0) {
-      addEvent(world, "trade", `${buyer.name} buys ${Math.round(amount)} units of ${intent.resource} from ${seller.name}.`);
+      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a ${route.mode} route (${Math.round(route.distance)} distance, ${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).`);
     }
   }
 }
@@ -226,7 +230,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (countryAtWar(world, attacker.id)) continue;
     const targets = world.countries
-      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id))
+      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
       .map((defender) => ({ defender, appetite: warAppetite(attacker, defender) }))
       .sort((a, b) => b.appetite - a.appetite);
 
@@ -248,7 +252,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       casualtiesA: 0,
       casualtiesB: 0,
     });
-    addEvent(world, "war", `${attacker.name} declares war on ${defender.name}.`);
+    addEvent(world, "war", `${attacker.name} declares war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}.`);
   }
 }
 
@@ -306,6 +310,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
   expireTruces(world);
+  resetRouteUsage(world);
   const rng = createRng(world.seed + world.week * 7919);
   runEconomy(world, rng);
   runTrade(world);
@@ -316,7 +321,9 @@ export function tickWeek(world: WorldState): WorldState {
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;
-    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.`);
+    const busiest = [...world.geography.routes].sort((a, b) => b.usedThisWeek - a.usedThisWeek)[0];
+    const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
+    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}`);
   }
   return world;
 }

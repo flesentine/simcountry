@@ -1,12 +1,8 @@
-import { describe, expect, test } from "vitest";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
 
 const YEARS = 500;
 const SEEDS = Array.from({ length: 100 }, (_, index) => index + 1);
 SEEDS[0] = 1978;
-const BATCH_SIZE = 20;
-const BATCHES = Array.from({ length: Math.ceil(SEEDS.length / BATCH_SIZE) }, (_, index) =>
-  SEEDS.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE));
 
 function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -16,15 +12,14 @@ function invariant(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const aggregate = {
-  totalFloorCountries: 0,
-  worldsAtMilitaryFloor: 0,
-  finalReadiness: [] as number[],
-  finalTension: [] as number[],
-  finalTreasuries: [] as number[],
-};
+let totalFloorCountries = 0;
+let worldsAtMilitaryFloor = 0;
+const finalReadiness: number[] = [];
+const finalTension: number[] = [];
+const finalTreasuries: number[] = [];
 
-function runSeed(seed: number) {
+for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
+  const seed = SEEDS[seedIndex]!;
   const world = createInitialWorld(seed);
 
   for (let week = 0; week < YEARS * 52; week++) {
@@ -41,8 +36,6 @@ function runSeed(seed: number) {
   }
 
   let floorCountries = 0;
-  const pairTensions: number[] = [];
-
   for (const country of world.countries) {
     const numbers = [
       country.population,
@@ -63,50 +56,45 @@ function runSeed(seed: number) {
     invariant(country.treasury >= -country.population * 5 - 0.0001, `seed ${seed}: ${country.name} treasury below debt floor`);
 
     if (country.military <= 3.0001) floorCountries++;
-    aggregate.finalReadiness.push(country.readiness);
-    aggregate.finalTreasuries.push(country.treasury);
+    finalReadiness.push(country.readiness);
+    finalTreasuries.push(country.treasury);
   }
 
   for (let i = 0; i < world.countries.length; i++) {
     for (let j = i + 1; j < world.countries.length; j++) {
       const a = world.countries[i]!;
       const b = world.countries[j]!;
-      pairTensions.push(a.relations[b.id]!.tension);
+      finalTension.push(a.relations[b.id]!.tension);
     }
   }
 
-  aggregate.totalFloorCountries += floorCountries;
-  if (floorCountries === world.countries.length) aggregate.worldsAtMilitaryFloor++;
-  aggregate.finalTension.push(...pairTensions);
+  totalFloorCountries += floorCountries;
+  if (floorCountries === world.countries.length) worldsAtMilitaryFloor++;
+
+  if ((seedIndex + 1) % 20 === 0) {
+    console.log(`stress progress: ${seedIndex + 1}/${SEEDS.length} worlds complete`);
+  }
 }
 
-describe.sequential("100 seeded worlds remain viable across 500 simulated years", () => {
-  BATCHES.forEach((seeds, batchIndex) => {
-    test(`batch ${batchIndex + 1}/${BATCHES.length}: seeds ${seeds[0]}–${seeds.at(-1)}`, () => {
-      for (const seed of seeds) runSeed(seed);
-    }, 180_000);
-  });
+const avgReadiness = average(finalReadiness);
+const avgTension = average(finalTension);
+const maxTreasury = Math.max(...finalTreasuries);
+const summary = {
+  worlds: SEEDS.length,
+  yearsPerWorld: YEARS,
+  simulatedYears: SEEDS.length * YEARS,
+  worldsAtMilitaryFloor,
+  totalFloorCountries,
+  avgReadiness,
+  avgTension,
+  maxTreasury,
+};
 
-  test("aggregate 50,000-year stability thresholds", () => {
-    const avgReadiness = average(aggregate.finalReadiness);
-    const avgTension = average(aggregate.finalTension);
-    const maxTreasury = Math.max(...aggregate.finalTreasuries);
+invariant(finalReadiness.length === SEEDS.length * 8, "stress gate did not evaluate all countries");
+invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
+invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);
+invariant(avgReadiness > 35, `average readiness ${avgReadiness} is too low`);
+invariant(avgTension < 70, `average tension ${avgTension} is too high`);
+invariant(maxTreasury < 5_000, `maximum treasury ${maxTreasury} exceeds the fiscal ceiling`);
 
-    console.log(JSON.stringify({
-      worlds: SEEDS.length,
-      yearsPerWorld: YEARS,
-      worldsAtMilitaryFloor: aggregate.worldsAtMilitaryFloor,
-      totalFloorCountries: aggregate.totalFloorCountries,
-      avgReadiness,
-      avgTension,
-      maxTreasury,
-    }));
-
-    expect(aggregate.finalReadiness).toHaveLength(SEEDS.length * 8);
-    expect(aggregate.worldsAtMilitaryFloor).toBe(0);
-    expect(aggregate.totalFloorCountries).toBeLessThan(SEEDS.length * 2);
-    expect(avgReadiness).toBeGreaterThan(35);
-    expect(avgTension).toBeLessThan(70);
-    expect(maxTreasury).toBeLessThan(5_000);
-  });
-});
+console.log(JSON.stringify(summary));

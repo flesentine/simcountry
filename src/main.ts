@@ -1,6 +1,6 @@
 import "./style.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
-import { createInitialWorld, tickWeek } from "./sim/world";
+import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
 const app = document.querySelector<HTMLDivElement>("#app") ?? (() => { throw new Error("Missing #app"); })();
 
@@ -12,6 +12,7 @@ let timer: number | null = null;
 
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
 const yearLabel = () => `Year ${Math.floor(world.week / 52) + 1} · Week ${(world.week % 52) + 1}`;
+const weekLabel = (week: number) => `Y${Math.floor(week / 52) + 1} · W${(week % 52) + 1}`;
 const atWar = (country: Country) => world.wars.some((war) => war.a === country.id || war.b === country.id);
 
 function eventIcon(event: WorldEvent) {
@@ -56,6 +57,7 @@ function render() {
             <span class="country-name"><i></i>${country.name}${atWar(country) ? " <em>WAR</em>" : ""}</span>
             <span class="country-stat"><b>${fmt(country.population)}M</b> people</span>
             <span class="country-stat"><b>$${fmt(country.treasury, 1)}B</b> treasury</span>
+            <span class="country-stat"><b>${fmt(country.military, 1)}/${fmt(country.militaryCapacity, 0)}</b> military</span>
             <span class="meters">
               <span><small>stability</small><i><u style="width:${country.stability}%"></u></i></span>
               <span><small>readiness</small><i><u style="width:${country.readiness}%"></u></i></span>
@@ -72,7 +74,7 @@ function render() {
           </div>
           <h3>State profile</h3>
           <div class="profile-grid">
-            <span>Military <b>${fmt(selected.military, 1)}</b></span>
+            <span>Military <b>${fmt(selected.military, 1)} / ${fmt(selected.militaryCapacity)}</b></span>
             <span>Risk <b>${selected.policy.risk}</b></span>
             <span>Expansionism <b>${selected.policy.expansionism}</b></span>
             <span>Commerce <b>${selected.policy.commerce}</b></span>
@@ -83,16 +85,17 @@ function render() {
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
               const r = selected.relations[other.id]!;
-              return `<div><span>${other.name}</span><small>trust ${fmt(r.trust)} · tension ${fmt(r.tension)}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
+              const truce = getActiveTruce(world, selected.id, other.id);
+              return `<div><span>${other.name}</span><small>trust ${fmt(r.trust)} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
             }).join("")}
           </div>
         </section>
 
         <section class="panel history">
-          <div class="panel-heading"><h2>World history</h2><span>${world.events.length} events</span></div>
+          <div class="panel-heading"><h2>World history</h2><span>${world.events.length} total · latest 40</span></div>
           <div class="event-list" aria-live="polite">
             ${world.events.slice(0, 40).map((event) => `
-              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>Y${Math.floor(event.week / 52) + 1} · W${(event.week % 52) + 1}</small><p>${event.text}</p></div></article>
+              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${event.text}</p></div></article>
             `).join("")}
           </div>
         </section>

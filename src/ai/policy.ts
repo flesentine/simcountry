@@ -67,9 +67,13 @@ export function warAppetite(attacker: Country, defender: Country): number {
   const grievance = Math.max(0, relation.tension - relation.trust * 0.35) / 100;
   const confidence = Math.max(0, Math.min(1.5, powerRatio - 0.7));
   const readinessFactor = 0.35 + attacker.readiness / 100 * 0.65;
-  const cabinetSupport = (government.agenda.defensePosture / 100) * (0.65 + government.cohesion / 250);
-  const defenseCompetence = 0.82 + government.ministries.defense.competence / 500;
-  const leaderDrive = 0.82 + (government.leader.traits.ambition + government.leader.traits.nationalism) / 900;
-  return grievance * confidence * (0.22 + attacker.policy.expansionism / 105) *
-    (0.28 + attacker.policy.risk / 105) * readinessFactor * cabinetSupport * defenseCompetence * leaderDrive;
+  // Cabinet support modulates the old baseline instead of replacing it. Even a
+  // reluctant cabinet can be dragged toward war by extreme grievance/power,
+  // while a hawkish cabinet materially raises the probability.
+  const cabinetSupport = 0.30 + government.agenda.defensePosture / 100 * 1.10;
+  const cohesionFactor = 0.80 + government.cohesion / 500;
+  const defenseCompetence = 0.88 + government.ministries.defense.competence / 700;
+  const leaderDrive = 0.90 + (government.leader.traits.ambition + government.leader.traits.nationalism) / 1200;
+  return grievance * confidence * (0.25 + attacker.policy.expansionism / 100) *
+    (0.3 + attacker.policy.risk / 100) * readinessFactor * cabinetSupport * cohesionFactor * defenseCompetence * leaderDrive;
 }

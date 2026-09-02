@@ -222,7 +222,15 @@ export function runGovernments(world: WorldState, rng: RngLike) {
     const atWar = world.wars.some((war) => war.a === country.id || war.b === country.id);
     const fiscalStress = country.treasury < 0 ? 10 : 0;
     const stabilityStress = Math.max(0, 50 - country.stability) * 0.35;
-    government.cohesion = clamp(government.cohesion + (55 - dissent) * 0.025 - fiscalStress * 0.08 - (atWar ? 0.04 : 0));
+    // Cohesion is a state that converges toward the cabinet's current political
+    // conditions. This avoids the old additive rule where ordinary low dissent
+    // inevitably pushed every government to 100% cohesion over long horizons.
+    const cohesionTarget = clamp(
+      88 - dissent * 1.18 + (government.legitimacy - 50) * 0.14 - fiscalStress * 1.1 - (atWar ? 7 : 0) - stabilityStress * 0.25,
+      16,
+      92,
+    );
+    government.cohesion = clamp(government.cohesion + (cohesionTarget - government.cohesion) * 0.12);
     government.legitimacy = clamp(government.legitimacy + (country.stability - 55) * 0.018 + (country.treasury >= 0 ? 0.05 : -0.12) - stabilityStress * 0.02);
 
     // Cabinet policy becomes the behaviorally effective state policy, but moves gradually.

@@ -9,6 +9,10 @@ function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function invariant(condition: boolean, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
 test("100 seeded worlds remain viable across 500 simulated years", () => {
   let totalFloorCountries = 0;
   let worldsAtMilitaryFloor = 0;
@@ -24,9 +28,9 @@ test("100 seeded worlds remain viable across 500 simulated years", () => {
 
       const participants = new Set<string>();
       for (const war of world.wars) {
-        expect(participants.has(war.a)).toBe(false);
-        expect(participants.has(war.b)).toBe(false);
-        expect(getActiveTruce(world, war.a, war.b)).toBeNull();
+        invariant(!participants.has(war.a), `seed ${seed} week ${world.week}: ${war.a} entered multiple wars`);
+        invariant(!participants.has(war.b), `seed ${seed} week ${world.week}: ${war.b} entered multiple wars`);
+        invariant(!getActiveTruce(world, war.a, war.b), `seed ${seed} week ${world.week}: active war overlaps a truce`);
         participants.add(war.a);
         participants.add(war.b);
       }
@@ -47,14 +51,12 @@ test("100 seeded worlds remain viable across 500 simulated years", () => {
         ...Object.values(country.production),
         ...Object.values(country.needs),
       ];
-      expect(numbers.every(Number.isFinite)).toBe(true);
-      expect(country.readiness).toBeGreaterThanOrEqual(0);
-      expect(country.readiness).toBeLessThanOrEqual(100);
-      expect(country.stability).toBeGreaterThanOrEqual(0);
-      expect(country.stability).toBeLessThanOrEqual(100);
-      expect(country.military).toBeGreaterThanOrEqual(3);
-      expect(country.military).toBeLessThanOrEqual(country.militaryCapacity + 0.0001);
-      expect(country.treasury).toBeGreaterThanOrEqual(-country.population * 5 - 0.0001);
+      invariant(numbers.every(Number.isFinite), `seed ${seed}: ${country.name} has non-finite state`);
+      invariant(country.readiness >= 0 && country.readiness <= 100, `seed ${seed}: ${country.name} readiness out of bounds`);
+      invariant(country.stability >= 0 && country.stability <= 100, `seed ${seed}: ${country.name} stability out of bounds`);
+      invariant(country.military >= 3, `seed ${seed}: ${country.name} military below floor`);
+      invariant(country.military <= country.militaryCapacity + 0.0001, `seed ${seed}: ${country.name} military exceeds capacity`);
+      invariant(country.treasury >= -country.population * 5 - 0.0001, `seed ${seed}: ${country.name} treasury below debt floor`);
 
       if (country.military <= 3.0001) floorCountries++;
       finalReadiness.push(country.readiness);
@@ -74,9 +76,23 @@ test("100 seeded worlds remain viable across 500 simulated years", () => {
     finalTension.push(...pairTensions);
   }
 
+  const avgReadiness = average(finalReadiness);
+  const avgTension = average(finalTension);
+  const maxTreasury = Math.max(...finalTreasuries);
+
+  console.log(JSON.stringify({
+    worlds: SEEDS.length,
+    yearsPerWorld: YEARS,
+    worldsAtMilitaryFloor,
+    totalFloorCountries,
+    avgReadiness,
+    avgTension,
+    maxTreasury,
+  }));
+
   expect(worldsAtMilitaryFloor).toBe(0);
   expect(totalFloorCountries).toBeLessThan(SEEDS.length * 2);
-  expect(average(finalReadiness)).toBeGreaterThan(35);
-  expect(average(finalTension)).toBeLessThan(70);
-  expect(Math.max(...finalTreasuries)).toBeLessThan(5_000);
+  expect(avgReadiness).toBeGreaterThan(35);
+  expect(avgTension).toBeLessThan(70);
+  expect(maxTreasury).toBeLessThan(5_000);
 }, 720_000);

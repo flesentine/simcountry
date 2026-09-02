@@ -1,6 +1,7 @@
 import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
-import { deriveProduction, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
+import { generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
+import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
@@ -66,7 +67,7 @@ export function createInitialWorld(seed = 1978): WorldState {
   }
 
   const geography = generateGeography(countries, seed);
-  for (const country of countries) country.production = deriveProduction(geography, country.id);
+  applyGeographicProduction(countries, geography);
 
   const world: WorldState = { seed, week: 0, nextEventId: 1, countries, geography, wars: [], truces: [], events: [] };
   const landCells = geography.cells.filter((cell) => cell.land).length;

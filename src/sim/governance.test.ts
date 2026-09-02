@@ -36,6 +36,42 @@ describe("SimCountry phase 3 governments and delegation", () => {
     expect(messages.length).toBeGreaterThanOrEqual(0);
   });
 
+  test("sustained institutional disagreement produces lower cabinet cohesion", () => {
+    const alignedWorld = createInitialWorld(1978);
+    const dividedWorld = createInitialWorld(1978);
+    const aligned = alignedWorld.countries[0]!;
+    const divided = dividedWorld.countries[0]!;
+    aligned.government.cohesion = divided.government.cohesion = 70;
+    aligned.government.legitimacy = divided.government.legitimacy = 60;
+
+    for (const position of [aligned.government.leader.position, ...Object.values(aligned.government.ministries).map((ministry) => ministry.position)]) {
+      position.economy = 55;
+      position.trade = 55;
+      position.diplomacy = 55;
+      position.defense = 55;
+      position.stability = 55;
+    }
+    divided.government.leader.position.defense = 95;
+    divided.government.leader.position.trade = 90;
+    divided.government.ministries.finance.position.defense = 5;
+    divided.government.ministries.finance.position.trade = 10;
+    divided.government.ministries.defense.position.defense = 95;
+    divided.government.ministries.trade.position.trade = 95;
+    divided.government.ministries.foreign.position.defense = 8;
+    divided.government.ministries.interior.position.trade = 12;
+
+    for (let quarter = 1; quarter <= 12; quarter++) {
+      alignedWorld.week = quarter * 13;
+      dividedWorld.week = quarter * 13;
+      runGovernments(alignedWorld, fixedRng);
+      runGovernments(dividedWorld, fixedRng);
+    }
+
+    expect(divided.government.dissent).toBeGreaterThan(aligned.government.dissent + 10);
+    expect(divided.government.cohesion).toBeLessThan(aligned.government.cohesion - 8);
+    expect(aligned.government.cohesion).toBeLessThanOrEqual(92);
+  });
+
   test("government fiscal choices change authoritative weekly cash flow", () => {
     const highTax = createInitialWorld(1978);
     const lowTax = createInitialWorld(1978);

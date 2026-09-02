@@ -200,8 +200,8 @@ function nearestCity(cities: City[], countryId: string, target: City) {
 
 export function recalculateRouteCapacity(route: TradeRoute) {
   const levelMultiplier = 1 + Math.max(0, route.level - 1) * 0.28;
-  const nominalCapacity = route.baseCapacity * levelMultiplier * Math.max(0.35, route.condition / 100);
-  route.capacity = round(Math.max(2, route.usedThisWeek, nominalCapacity));
+  const nominalCapacity = round(Math.max(2, route.baseCapacity * levelMultiplier * Math.max(0.35, route.condition / 100)));
+  route.capacity = Math.max(route.usedThisWeek, nominalCapacity);
   return route.capacity;
 }
 

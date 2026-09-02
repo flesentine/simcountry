@@ -32,7 +32,13 @@ export function calculateWarSupply(world: WorldState, country: Country, opponent
   const logistics = countryLogistics(world, country.id) * 28;
   const landAccess = (world.geography.adjacency[country.id] ?? []).includes(opponentId) ? 10 : -6;
   const defenseExecution = (country.government.ministries.defense.competence - 50) * 0.07 + (country.government.cohesion - 50) * 0.035;
-  return clamp(22 + stock + fiscal + logistics + landAccess + defenseExecution, 8, 100);
+  const preBlockade = clamp(22 + stock + fiscal + logistics + landAccess + defenseExecution, 8, 100);
+  // Apply this after the normal cap so a country at supply 100 still suffers an
+  // immediate, observable military penalty when a sea corridor is blockaded.
+  const directBlockadePenalty = world.geography.routes
+    .filter((route) => route.blockedBy && route.blockedBy !== country.id && (route.a === country.id || route.b === country.id))
+    .length * 6;
+  return clamp(preBlockade - directBlockadePenalty, 8, 100);
 }
 
 export function updateWarLogistics(world: WorldState) {

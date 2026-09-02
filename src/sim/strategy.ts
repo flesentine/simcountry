@@ -112,7 +112,8 @@ export function runAnnualDemography(world: WorldState) {
       -0.035,
       0.035,
     );
-    city.population = round(Math.max(0.35, city.population * (1 + annualGrowth)));
+    const urbanCap = Math.max(1.5, country.population * (city.capital ? 0.42 : city.port ? 0.30 : 0.24));
+    city.population = round(Math.min(urbanCap, Math.max(0.35, city.population * (1 + annualGrowth))));
     city.industry = round(clamp(city.industry * (1 + annualGrowth * 0.45 + infra * 0.001), 0.5, 12));
   }
 
@@ -134,7 +135,10 @@ export function runAnnualDemography(world: WorldState) {
     const sourceCity = world.geography.cities.filter((city) => city.countryId === source.id).sort((a, b) => b.population - a.population)[0];
     const targetCity = world.geography.cities.filter((city) => city.countryId === target.id).sort((a, b) => b.population - a.population)[0];
     if (sourceCity) sourceCity.population = round(Math.max(0.35, sourceCity.population - amount * 0.55));
-    if (targetCity) targetCity.population = round(targetCity.population + amount * 0.55);
+    if (targetCity) {
+      const targetCap = Math.max(1.5, target.population * (targetCity.capital ? 0.42 : targetCity.port ? 0.30 : 0.24));
+      targetCity.population = round(Math.min(targetCap, targetCity.population + amount * 0.55));
+    }
     messages.push(`${amount.toFixed(2)}M people migrate from ${source.name} to more stable ${target.name} through an open transport corridor.`);
   }
 

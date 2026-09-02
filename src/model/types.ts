@@ -25,6 +25,7 @@ export interface Country {
   production: ResourceLedger;
   needs: ResourceLedger;
   military: number;
+  militaryCapacity: number;
   readiness: number;
   stability: number;
   policy: PolicyProfile;
@@ -39,6 +40,14 @@ export interface War {
   startWeek: number;
   casualtiesA: number;
   casualtiesB: number;
+}
+
+export interface Truce {
+  id: string;
+  a: string;
+  b: string;
+  startWeek: number;
+  endWeek: number;
 }
 
 export type EventKind = "trade" | "war" | "peace" | "economy" | "politics" | "world";
@@ -56,5 +65,6 @@ export interface WorldState {
   nextEventId: number;
   countries: Country[];
   wars: War[];
+  truces: Truce[];
   events: WorldEvent[];
 }

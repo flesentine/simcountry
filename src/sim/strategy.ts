@@ -35,7 +35,7 @@ export function updateWarLogistics(world: WorldState) {
   for (const route of world.geography.routes) route.blockedBy = null;
 
   const messages: string[] = [];
-  for (const war of world.wars) {
+  const blockadePlans = world.wars.map((war) => {
     const a = world.countries.find((country) => country.id === war.a)!;
     const b = world.countries.find((country) => country.id === war.b)!;
     const provisionalSupplyA = calculateWarSupply(world, a, b.id);
@@ -54,7 +54,12 @@ export function updateWarLogistics(world: WorldState) {
     const weaker = powerA >= powerB ? b : a;
     const ratio = Math.max(powerA, powerB) / Math.max(1, Math.min(powerA, powerB));
     war.blockadeRouteIds = [];
+    return { war, stronger, weaker, ratio };
+  });
 
+  // Plan every blockade from the same pre-blockade world snapshot. Routes are
+  // claimed once so two simultaneous wars cannot both own the same blockade.
+  for (const { war, stronger, weaker, ratio } of blockadePlans) {
     const strongerHasPort = world.geography.cities.some((city) => city.countryId === stronger.id && city.port);
     if (!strongerHasPort || ratio < 1.28) continue;
     const candidates = world.geography.routes
@@ -68,8 +73,6 @@ export function updateWarLogistics(world: WorldState) {
   }
 
   // Supply is authoritative only after all current blockades are established.
-  // This also prevents war iteration order from letting one side calculate supply
-  // against a temporarily unblocked version of the same weekly world state.
   for (const war of world.wars) {
     const a = world.countries.find((country) => country.id === war.a)!;
     const b = world.countries.find((country) => country.id === war.b)!;

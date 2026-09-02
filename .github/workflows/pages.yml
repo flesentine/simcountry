@@ -29,6 +29,13 @@ jobs:
       - run: npm run check
       - name: Stress 100 seeds across 500 years
         run: npm run stress
+      - name: Retain PR build for browser verification
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: simcountry-pr-dist
+          path: dist
+          retention-days: 1
       - uses: actions/configure-pages@v5
         if: github.event_name != 'pull_request'
       - uses: actions/upload-pages-artifact@v3

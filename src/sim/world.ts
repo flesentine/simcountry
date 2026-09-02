@@ -1,5 +1,5 @@
 import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
-import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type WorldEvent, type WorldState } from "../model/types";
+import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { createRng } from "./rng";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
@@ -12,38 +12,42 @@ const round = (value: number) => Math.round(value * 10) / 10;
 function addEvent(world: WorldState, kind: EventKind, text: string) {
   const event: WorldEvent = { id: world.nextEventId++, week: world.week, kind, text };
   world.events.unshift(event);
-  if (world.events.length > 300) world.events.length = 300;
 }
 
 export function createInitialWorld(seed = 1978): WorldState {
   const rng = createRng(seed);
   const countries: Country[] = NAMES.map((name, index) => {
     const population = rng.int(18, 92);
+    const treasury = rng.int(130, 360);
+    const resources = {
+      food: rng.int(70, 190),
+      energy: rng.int(55, 190),
+      metals: rng.int(45, 160),
+      goods: rng.int(45, 145),
+    };
+    const production = {
+      food: rng.int(7, 18),
+      energy: rng.int(5, 18),
+      metals: rng.int(4, 14),
+      goods: rng.int(4, 13),
+    };
+    const militaryCapacity = rng.int(35, 105);
     return {
       id: name.toLowerCase(),
       name,
       color: COLORS[index],
       population,
-      treasury: rng.int(130, 360),
-      resources: {
-        food: rng.int(70, 190),
-        energy: rng.int(55, 190),
-        metals: rng.int(45, 160),
-        goods: rng.int(45, 145),
-      },
-      production: {
-        food: rng.int(7, 18),
-        energy: rng.int(5, 18),
-        metals: rng.int(4, 14),
-        goods: rng.int(4, 13),
-      },
+      treasury,
+      resources,
+      production,
       needs: {
         food: population * 0.115,
         energy: population * 0.085,
         metals: population * 0.035,
         goods: population * 0.055,
       },
-      military: rng.int(35, 105),
+      military: militaryCapacity,
+      militaryCapacity,
       readiness: rng.int(42, 82),
       stability: rng.int(55, 88),
       policy: {
@@ -67,13 +71,26 @@ export function createInitialWorld(seed = 1978): WorldState {
     }
   }
 
-  const world: WorldState = { seed, week: 0, nextEventId: 1, countries, wars: [], events: [] };
+  const world: WorldState = { seed, week: 0, nextEventId: 1, countries, wars: [], truces: [], events: [] };
   addEvent(world, "world", `Eight sovereign states enter the simulation. Seed ${seed}.`);
   return world;
 }
 
 function isAtWar(world: WorldState, a: string, b: string) {
   return world.wars.some((war) => (war.a === a && war.b === b) || (war.a === b && war.b === a));
+}
+
+function countryAtWar(world: WorldState, countryId: string) {
+  return world.wars.some((war) => war.a === countryId || war.b === countryId);
+}
+
+export function getActiveTruce(world: WorldState, a: string, b: string): Truce | null {
+  return world.truces.find((truce) => truce.endWeek > world.week &&
+    ((truce.a === a && truce.b === b) || (truce.a === b && truce.b === a))) ?? null;
+}
+
+function expireTruces(world: WorldState) {
+  world.truces = world.truces.filter((truce) => truce.endWeek > world.week);
 }
 
 function runEconomy(world: WorldState, rng: ReturnType<typeof createRng>) {
@@ -91,9 +108,30 @@ function runEconomy(world: WorldState, rng: ReturnType<typeof createRng>) {
     }
 
     const taxBase = country.population * 0.024 * (0.6 + country.stability / 125);
-    country.treasury += taxBase - country.military * 0.006;
-    country.stability = clamp(country.stability + 0.035 - shortagePressure * 0.9);
-    country.readiness = clamp(country.readiness - 0.025 + (country.treasury > 0 ? 0.015 : -0.08));
+    const civilSpending = country.population * 0.018;
+    const reserveTarget = country.population * 8;
+    const reserveInvestment = Math.max(0, country.treasury - reserveTarget) * 0.0015;
+    country.treasury += taxBase - country.military * 0.006 - civilSpending - reserveInvestment;
+    country.treasury = Math.max(-country.population * 5, country.treasury);
+    country.stability = clamp(country.stability + 0.035 - shortagePressure * 0.9 + (country.treasury < 0 ? -0.025 : 0));
+
+    if (countryAtWar(world, country.id)) {
+      country.readiness = clamp(country.readiness - 0.015 + (country.treasury < 0 ? -0.035 : 0));
+    } else {
+      const readinessTarget = clamp(38 + country.policy.risk * 0.22 + country.policy.expansionism * 0.16 + country.policy.diplomacy * 0.06, 40, 82);
+      country.readiness = clamp(country.readiness + (readinessTarget - country.readiness) * 0.018 + (country.treasury >= 0 ? 0.01 : -0.06));
+
+      if (country.military < country.militaryCapacity && country.treasury > 0) {
+        let recruits = Math.min(
+          country.militaryCapacity - country.military,
+          0.05 + country.population * 0.0015 + country.stability * 0.0008,
+        );
+        const recruitCost = recruits * 0.9;
+        if (recruitCost > country.treasury) recruits *= country.treasury / recruitCost;
+        country.military = Math.min(country.militaryCapacity, country.military + recruits);
+        country.treasury -= recruits * 0.9;
+      }
+    }
 
     if (shortagePressure > 0.7 && rng.next() < 0.08) {
       addEvent(world, "economy", `${country.name} is suffering severe shortages; stability falls to ${Math.round(country.stability)}%.`);
@@ -112,8 +150,10 @@ function runTrade(world: WorldState) {
     const sellerRelation = seller.relations[buyer.id];
     if (!relation || !sellerRelation) continue;
 
-    const desired = Math.max(4, buyer.needs[intent.resource] * 4);
-    const sellerReserve = seller.needs[intent.resource] * 9;
+    const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
+    const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
+    const sellerReserveWeeks = 11 - seller.policy.commerce / 25;
+    const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
     const amount = Math.min(desired, available);
     const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250);
@@ -144,18 +184,29 @@ function evolveRelations(world: WorldState, rng: ReturnType<typeof createRng>) {
       const ar = a.relations[b.id]!;
       const br = b.relations[a.id]!;
       if (isAtWar(world, a.id, b.id)) {
-        ar.tension = br.tension = clamp(Math.max(ar.tension, br.tension) + 0.5);
-        ar.trust = br.trust = clamp(Math.min(ar.trust, br.trust) - 0.4);
+        ar.tension = br.tension = clamp(Math.max(ar.tension, br.tension) + 0.35);
+        ar.trust = br.trust = clamp(Math.min(ar.trust, br.trust) - 0.25);
         continue;
       }
 
-      const policyFriction = Math.abs(a.policy.expansionism - b.policy.expansionism) / 2500;
-      const militaryFriction = (a.policy.expansionism + b.policy.expansionism) / 1100;
-      const noise = (rng.next() - 0.5) * 0.12;
-      const tradeCalm = Math.min(0.08, (ar.tradeVolume + br.tradeVolume) / 12000);
-      const delta = policyFriction + militaryFriction + noise - tradeCalm;
-      ar.tension = clamp(ar.tension + delta);
-      br.tension = clamp(br.tension + delta);
+      const policyFriction = Math.abs(a.policy.expansionism - b.policy.expansionism) * 0.22;
+      const militaryFriction = (a.policy.expansionism + b.policy.expansionism) * 0.16;
+      const diplomaticCalm = (a.policy.diplomacy + b.policy.diplomacy) * 0.06;
+      const tradeCalm = Math.min(12, (ar.tradeVolume + br.tradeVolume) / 300);
+      let tensionTarget = clamp(26 + policyFriction + militaryFriction - diplomaticCalm - tradeCalm, 8, 68);
+      const truce = getActiveTruce(world, a.id, b.id);
+      if (truce) tensionTarget = Math.max(tensionTarget, 43);
+
+      const tensionNoise = (rng.next() - 0.5) * 0.08;
+      ar.tension = clamp(ar.tension + (tensionTarget - ar.tension) * 0.008 + tensionNoise);
+      br.tension = clamp(br.tension + (tensionTarget - br.tension) * 0.008 + tensionNoise);
+
+      let trustTarget = clamp(54 + (a.policy.diplomacy + b.policy.diplomacy) * 0.08 + tradeCalm * 0.8 - tensionTarget * 0.58, 8, 78);
+      if (truce) trustTarget = Math.min(trustTarget, 34);
+      const trustNoise = (rng.next() - 0.5) * 0.04;
+      ar.trust = clamp(ar.trust + (trustTarget - ar.trust) * 0.004 + trustNoise);
+      br.trust = clamp(br.trust + (trustTarget - br.trust) * 0.004 + trustNoise);
+
       ar.tradeVolume *= 0.992;
       br.tradeVolume *= 0.992;
     }
@@ -164,9 +215,9 @@ function evolveRelations(world: WorldState, rng: ReturnType<typeof createRng>) {
 
 function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
-    if (world.wars.some((war) => war.a === attacker.id || war.b === attacker.id)) continue;
+    if (countryAtWar(world, attacker.id)) continue;
     const targets = world.countries
-      .filter((defender) => defender.id !== attacker.id && !world.wars.some((war) => war.a === defender.id || war.b === defender.id))
+      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id))
       .map((defender) => ({ defender, appetite: warAppetite(attacker, defender) }))
       .sort((a, b) => b.appetite - a.appetite);
 
@@ -215,7 +266,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 
     const duration = world.week - war.startWeek;
     const ratio = a.military / Math.max(1, b.military);
-    const exhausted = duration > 20 && (a.stability < 35 || b.stability < 35 || ratio > 2.1 || ratio < 0.48);
+    const exhausted = duration > 20 && (a.stability < 35 || b.stability < 35 || ratio > 2.1 || ratio < 0.48 || a.readiness < 18 || b.readiness < 18);
     const longWarPeace = duration > 52 && rng.next() < 0.018;
     if (exhausted || longWarPeace) {
       const winner = ratio >= 1 ? a : b;
@@ -223,9 +274,20 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       const reparations = Math.max(0, Math.min(35, loser.treasury * 0.08));
       loser.treasury -= reparations;
       winner.treasury += reparations;
-      winner.relations[loser.id]!.tension = 82;
-      loser.relations[winner.id]!.tension = 92;
-      addEvent(world, "peace", `${winner.name} emerges ahead as ${winner.name} and ${loser.name} sign a peace settlement after ${duration} weeks of war.`);
+      winner.relations[loser.id]!.tension = 62;
+      loser.relations[winner.id]!.tension = 72;
+      winner.relations[loser.id]!.trust = Math.min(winner.relations[loser.id]!.trust, 18);
+      loser.relations[winner.id]!.trust = Math.min(loser.relations[winner.id]!.trust, 14);
+
+      const truceWeeks = 104 + Math.min(156, Math.floor(duration * 2));
+      world.truces.push({
+        id: `${war.id}-truce`,
+        a: war.a,
+        b: war.b,
+        startWeek: world.week,
+        endWeek: world.week + truceWeeks,
+      });
+      addEvent(world, "peace", `${winner.name} emerges ahead as ${winner.name} and ${loser.name} sign a peace settlement and ${truceWeeks}-week truce after ${duration} weeks of war.`);
       ended.push(war.id);
     }
   }
@@ -234,6 +296,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 
 export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
+  expireTruces(world);
   const rng = createRng(world.seed + world.week * 7919);
   runEconomy(world, rng);
   runTrade(world);

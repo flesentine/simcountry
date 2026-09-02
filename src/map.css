@@ -12,14 +12,26 @@
 .map-cell.terrain-desert { fill-opacity:.48; }
 .map-cell.selected-territory { stroke:#f5f8fc; stroke-width:1.15; filter:saturate(1.2); }
 .route-layer { pointer-events:none; }
-.map-route { fill:none; stroke:#8795a8; stroke-width:1.2; opacity:.18; vector-effect:non-scaling-stroke; }
+.map-route { fill:none; stroke:#8795a8; stroke-width:1.05; opacity:.18; vector-effect:non-scaling-stroke; transition:opacity .15s, stroke-width .15s; }
+.map-route.level-2 { stroke-width:1.35; }
+.map-route.level-3 { stroke-width:1.7; }
+.map-route.level-4 { stroke-width:2.05; }
+.map-route.level-5 { stroke-width:2.45; }
 .map-route.sea { stroke:#78aeda; stroke-dasharray:4 3; }
 .map-route.land { stroke:#d6ad72; }
-.map-route.active { opacity:.76; stroke-width:2; }
+.map-route.land.level-3, .map-route.land.level-4, .map-route.land.level-5 { stroke:#f0c477; stroke-dasharray:none; }
+.map-route.chokepoint { opacity:.48; filter:drop-shadow(0 0 2px rgba(255,214,111,.8)); }
+.map-route.blocked { stroke:#f26d6d; stroke-dasharray:2 2; opacity:.92; }
+.map-route.active { opacity:.82; stroke-width:2.2; }
+.map-route.active.level-3, .map-route.active.level-4, .map-route.active.level-5 { stroke-width:2.8; }
 .map-city { fill:#0b1017; stroke:var(--city-country); stroke-width:2; cursor:pointer; vector-effect:non-scaling-stroke; }
 .map-city.capital { fill:var(--city-country); stroke:#f4f7fb; stroke-width:1.6; }
 .map-city.port { stroke-dasharray:2 1; }
 .map-city.selected-city { filter:drop-shadow(0 0 3px rgba(255,255,255,.65)); }
+.front-layer { pointer-events:none; }
+.war-front circle { fill:rgba(14,18,25,.9); stroke:#f06b67; stroke-width:2; vector-effect:non-scaling-stroke; }
+.war-front path { stroke:#f6dad7; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+.war-front.active circle { stroke:#ff9f91; filter:drop-shadow(0 0 4px rgba(255,94,82,.8)); }
 .map-legend { display:flex; flex-wrap:wrap; gap:11px; padding:9px 3px 0; color:#667389; font-size:9px; text-transform:uppercase; letter-spacing:.08em; }
 .map-inspector { padding:16px; overflow:auto; }
 .map-country-title { display:flex; gap:10px; align-items:center; padding-bottom:13px; border-bottom:1px solid #252d39; }
@@ -35,8 +47,13 @@
 .map-inspector p { margin:0; color:#b7c0cd; font-size:11px; line-height:1.45; }
 .map-list { display:grid; gap:5px; }
 .map-list > span { display:grid; gap:2px; border:1px solid #252d38; border-radius:7px; padding:7px 8px; }
+.map-list > span.route-blocked { border-color:#65383a; background:rgba(113,44,48,.14); }
 .map-list b { font-size:10px; text-transform:capitalize; }
 .map-list small { color:#707d91; font-size:9px; }
+.war-card { display:grid; gap:4px; margin:13px 0; padding:10px; border:1px solid #62373b; border-radius:8px; background:linear-gradient(180deg,rgba(111,39,44,.16),rgba(47,25,28,.08)); }
+.war-card strong { color:#f0958e; font-size:9px; letter-spacing:.1em; }
+.war-card span { font-size:11px; font-weight:800; }
+.war-card small { color:#9f8587; font-size:9px; }
 
 @media (max-width: 880px) {
   .map-layout { grid-template-columns:1fr; }

@@ -166,7 +166,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (world.wars.some((war) => war.a === attacker.id || war.b === attacker.id)) continue;
     const targets = world.countries
-      .filter((defender) => defender.id !== attacker.id && !isAtWar(world, attacker.id, defender.id))
+      .filter((defender) => defender.id !== attacker.id && !world.wars.some((war) => war.a === defender.id || war.b === defender.id))
       .map((defender) => ({ defender, appetite: warAppetite(attacker, defender) }))
       .sort((a, b) => b.appetite - a.appetite);
 

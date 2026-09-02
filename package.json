@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run --exclude src/sim/stress.test.ts",
-    "stress": "vitest run src/sim/stress.test.ts",
+    "stress": "vite-node src/sim/stress-runner.ts",
     "check": "npm run test && npm run build"
   },
   "devDependencies": {

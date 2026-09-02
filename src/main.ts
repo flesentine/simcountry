@@ -1,4 +1,5 @@
 import "./style.css";
+import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
@@ -10,13 +11,76 @@ let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
 
+const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
 const yearLabel = () => `Year ${Math.floor(world.week / 52) + 1} · Week ${(world.week % 52) + 1}`;
 const weekLabel = (week: number) => `Y${Math.floor(week / 52) + 1} · W${(week % 52) + 1}`;
 const atWar = (country: Country) => world.wars.some((war) => war.a === country.id || war.b === country.id);
+const countryById = (id: string) => world.countries.find((country) => country.id === id);
+const cityById = (id: string) => world.geography.cities.find((city) => city.id === id);
 
 function eventIcon(event: WorldEvent) {
   return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", world: "◎" } as const)[event.kind];
+}
+
+function renderMap(selected: Country) {
+  const geography = world.geography;
+  const selectedCities = geography.cities.filter((city) => city.countryId === selected.id);
+  const neighbors = (geography.adjacency[selected.id] ?? []).map((id) => countryById(id)?.name ?? id);
+  const routes = geography.routes.filter((route) => route.a === selected.id || route.b === selected.id);
+  const territory = geography.cells.filter((cell) => cell.ownerId === selected.id);
+  const ports = selectedCities.filter((city) => city.port);
+  const routeLines = geography.routes.map((route) => {
+    const from = cityById(route.fromCityId);
+    const to = cityById(route.toCityId);
+    if (!from || !to) return "";
+    const active = route.a === selected.id || route.b === selected.id;
+    return `<line class="map-route ${route.mode} ${active ? "active" : ""}" x1="${(from.x + 0.5) * CELL}" y1="${(from.y + 0.5) * CELL}" x2="${(to.x + 0.5) * CELL}" y2="${(to.y + 0.5) * CELL}"><title>${route.mode} route · ${fmt(route.distance, 1)} distance · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} used</title></line>`;
+  }).join("");
+
+  return `
+    <section class="panel map-panel" aria-label="Generated world geography">
+      <div class="panel-heading">
+        <div><span class="dot" style="background:${selected.color}"></span><h2>Physical world</h2></div>
+        <span>${geography.width}×${geography.height} · ${geography.routes.length} routes</span>
+      </div>
+      <div class="map-layout">
+        <div class="map-stage">
+          <svg class="world-map" viewBox="0 0 ${geography.width * CELL} ${geography.height * CELL}" role="img" aria-label="SimCountry generated territory map">
+            <rect class="map-ocean" width="100%" height="100%"></rect>
+            ${geography.cells.filter((cell) => cell.land && cell.ownerId).map((cell) => {
+              const owner = countryById(cell.ownerId!);
+              return `<rect class="map-cell terrain-${cell.terrain} ${cell.ownerId === selected.id ? "selected-territory" : ""}" data-country="${cell.ownerId}" x="${cell.x * CELL}" y="${cell.y * CELL}" width="${CELL}" height="${CELL}" style="--cell-country:${owner?.color ?? "#777"}"><title>${owner?.name ?? cell.ownerId} · ${cell.terrain}${cell.coastal ? " · coast" : ""}\nfood ${cell.deposits.food} · energy ${cell.deposits.energy} · metals ${cell.deposits.metals}</title></rect>`;
+            }).join("")}
+            <g class="route-layer">${routeLines}</g>
+            ${geography.cities.map((city) => {
+              const owner = countryById(city.countryId);
+              const selectedCity = city.countryId === selected.id;
+              return `<circle class="map-city ${city.capital ? "capital" : ""} ${city.port ? "port" : ""} ${selectedCity ? "selected-city" : ""}" data-country="${city.countryId}" cx="${(city.x + 0.5) * CELL}" cy="${(city.y + 0.5) * CELL}" r="${city.capital ? 5.2 : 3.8}" style="--city-country:${owner?.color ?? "#fff"}"><title>${city.name}${city.capital ? " · capital" : ""}${city.port ? " · port" : ""} · ${fmt(city.population, 1)}M urban population</title></circle>`;
+            }).join("")}
+          </svg>
+          <div class="map-legend"><span>■ territory</span><span>● city</span><span>◎ port</span><span>— land route</span><span>┄ sea route</span></div>
+        </div>
+        <aside class="map-inspector">
+          <div class="map-country-title"><i style="background:${selected.color}"></i><div><strong>${selected.name}</strong><span>${territory.length} land regions</span></div></div>
+          <dl>
+            <div><dt>Cities</dt><dd>${selectedCities.length}</dd></div>
+            <div><dt>Ports</dt><dd>${ports.length}</dd></div>
+            <div><dt>Neighbors</dt><dd>${neighbors.length}</dd></div>
+            <div><dt>Routes</dt><dd>${routes.length}</dd></div>
+          </dl>
+          <h4>Urban network</h4>
+          <div class="map-list">${selectedCities.map((city) => `<span><b>${city.name}</b><small>${city.capital ? "capital · " : ""}${city.port ? "port · " : ""}${fmt(city.population, 1)}M</small></span>`).join("")}</div>
+          <h4>Land frontiers</h4>
+          <p>${neighbors.length ? neighbors.join(" · ") : "No direct land borders"}</p>
+          <h4>Transport</h4>
+          <div class="map-list">${routes.slice(0, 8).map((route) => {
+            const otherId = route.a === selected.id ? route.b : route.a;
+            return `<span><b>${route.mode} → ${countryById(otherId)?.name ?? otherId}</b><small>${fmt(route.distance, 1)} dist · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} capacity</small></span>`;
+          }).join("") || "<p>No international route</p>"}</div>
+        </aside>
+      </div>
+    </section>`;
 }
 
 function render() {
@@ -47,9 +111,11 @@ function render() {
       <section class="summary" aria-label="World summary">
         <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.population, 0))}M</strong><span>population</span></div>
         <div><strong>${world.wars.length}</strong><span>active wars</span></div>
-        <div><strong>$${fmt(world.countries.reduce((sum, c) => sum + c.treasury, 0), 1)}B</strong><span>treasuries</span></div>
-        <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.military, 0), 1)}</strong><span>military index</span></div>
+        <div><strong>${world.geography.cities.length}</strong><span>cities</span></div>
+        <div><strong>${world.geography.routes.length}</strong><span>trade routes</span></div>
       </section>
+
+      ${renderMap(selected)}
 
       <section class="world-grid" aria-label="Countries">
         ${world.countries.map((country) => `
@@ -86,7 +152,8 @@ function render() {
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
               const r = selected.relations[other.id]!;
               const truce = getActiveTruce(world, selected.id, other.id);
-              return `<div><span>${other.name}</span><small>trust ${fmt(r.trust)} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
+              const access = world.geography.adjacency[selected.id]?.includes(other.id) ? "land" : world.geography.routes.some((route) => route.mode === "sea" && ((route.a === selected.id && route.b === other.id) || (route.b === selected.id && route.a === other.id))) ? "sea" : "none";
+              return `<div><span>${other.name}</span><small>${access} access · trust ${fmt(r.trust)} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
             }).join("")}
           </div>
         </section>
@@ -123,9 +190,9 @@ function render() {
     speed = Number((event.target as HTMLSelectElement).value);
     syncTimer();
   });
-  app.querySelectorAll<HTMLButtonElement>("[data-country]").forEach((button) => {
-    button.addEventListener("click", () => {
-      selectedId = button.dataset.country ?? selectedId;
+  app.querySelectorAll<HTMLElement>("[data-country]").forEach((element) => {
+    element.addEventListener("click", () => {
+      selectedId = element.dataset.country ?? selectedId;
       render();
     });
   });

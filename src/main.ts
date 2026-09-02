@@ -2,8 +2,7 @@ import "./style.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
 import { createInitialWorld, tickWeek } from "./sim/world";
 
-const app = document.querySelector<HTMLDivElement>("#app");
-if (!app) throw new Error("Missing #app");
+const app = document.querySelector<HTMLDivElement>("#app") ?? (() => { throw new Error("Missing #app"); })();
 
 let world: WorldState = createInitialWorld(1978);
 let running = false;

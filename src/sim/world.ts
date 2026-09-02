@@ -309,7 +309,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
           loser.stability = clamp(loser.stability - 0.45);
           winner.stability = clamp(winner.stability + 0.12);
           applyGeographicProduction(world.countries, world.geography);
-          war.frontCellId = findFrontCell(world, winner.id, loser.id)?.id ?? null;
+          war.frontCellId = findFrontCell(world, winner.id, loser.id)?.id ?? findFrontCell(world, loser.id, winner.id)?.id ?? null;
           addEvent(world, "war", `${winner.name} captures region ${result.cell.id} from ${loser.name}${result.city ? `, including ${result.city.name}` : ""}. Borders and transport corridors are recalculated around the new front.`);
         }
       }
@@ -318,7 +318,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
     const ratio = a.military / Math.max(1, b.military);
     const exhausted = duration > 20 && (a.stability < 35 || b.stability < 35 || ratio > 2.1 || ratio < 0.48 || a.readiness < 18 || b.readiness < 18 || war.supplyA < 14 || war.supplyB < 14);
     const longWarPeace = duration > 52 && rng.next() < 0.018;
-    const lostAccess = duration > 12 && !hasStrategicAccess(world, war.a, war.b);
+    const lostAccess = !hasStrategicAccess(world, war.a, war.b);
     if (exhausted || longWarPeace || lostAccess) {
       const winner = (a.military * supplyFactorA) >= (b.military * supplyFactorB) ? a : b;
       const loser = winner.id === a.id ? b : a;

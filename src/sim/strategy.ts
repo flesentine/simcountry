@@ -38,15 +38,18 @@ export function updateWarLogistics(world: WorldState) {
   for (const war of world.wars) {
     const a = world.countries.find((country) => country.id === war.a)!;
     const b = world.countries.find((country) => country.id === war.b)!;
-    war.supplyA = calculateWarSupply(world, a, b.id);
-    war.supplyB = calculateWarSupply(world, b, a.id);
+    const provisionalSupplyA = calculateWarSupply(world, a, b.id);
+    const provisionalSupplyB = calculateWarSupply(world, b, a.id);
+    war.supplyA = provisionalSupplyA;
+    war.supplyB = provisionalSupplyB;
+
     if (!war.frontCellId || world.geography.cells.find((cell) => cell.id === war.frontCellId)?.ownerId === war.attacker) {
       const defenderId = war.attacker === war.a ? war.b : war.a;
       war.frontCellId = findFrontCell(world, war.attacker, defenderId)?.id ?? findFrontCell(world, defenderId, war.attacker)?.id ?? null;
     }
 
-    const powerA = a.military * (0.55 + a.readiness / 100) * (0.65 + war.supplyA / 145);
-    const powerB = b.military * (0.55 + b.readiness / 100) * (0.65 + war.supplyB / 145);
+    const powerA = a.military * (0.55 + a.readiness / 100) * (0.65 + provisionalSupplyA / 145);
+    const powerB = b.military * (0.55 + b.readiness / 100) * (0.65 + provisionalSupplyB / 145);
     const stronger = powerA >= powerB ? a : b;
     const weaker = powerA >= powerB ? b : a;
     const ratio = Math.max(powerA, powerB) / Math.max(1, Math.min(powerA, powerB));
@@ -55,7 +58,7 @@ export function updateWarLogistics(world: WorldState) {
     const strongerHasPort = world.geography.cities.some((city) => city.countryId === stronger.id && city.port);
     if (!strongerHasPort || ratio < 1.28) continue;
     const candidates = world.geography.routes
-      .filter((route) => route.mode === "sea" && (route.a === weaker.id || route.b === weaker.id))
+      .filter((route) => route.mode === "sea" && !route.blockedBy && (route.a === weaker.id || route.b === weaker.id))
       .sort((x, y) => Number(y.chokepoint) - Number(x.chokepoint) || y.capacity - x.capacity);
     const target = candidates[0];
     if (!target) continue;
@@ -63,6 +66,17 @@ export function updateWarLogistics(world: WorldState) {
     war.blockadeRouteIds.push(target.id);
     if (target.chokepoint) messages.push(`${stronger.name} is blockading strategic chokepoint ${target.id}, constraining ${weaker.name}'s maritime supply.`);
   }
+
+  // Supply is authoritative only after all current blockades are established.
+  // This also prevents war iteration order from letting one side calculate supply
+  // against a temporarily unblocked version of the same weekly world state.
+  for (const war of world.wars) {
+    const a = world.countries.find((country) => country.id === war.a)!;
+    const b = world.countries.find((country) => country.id === war.b)!;
+    war.supplyA = calculateWarSupply(world, a, b.id);
+    war.supplyB = calculateWarSupply(world, b, a.id);
+  }
+
   return messages;
 }
 

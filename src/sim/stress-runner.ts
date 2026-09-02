@@ -36,7 +36,8 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(Number.isFinite(war.supplyA) && war.supplyA >= 8 && war.supplyA <= 100, `seed ${seed} week ${world.week}: supplyA out of bounds`);
       invariant(Number.isFinite(war.supplyB) && war.supplyB >= 8 && war.supplyB <= 100, `seed ${seed} week ${world.week}: supplyB out of bounds`);
       invariant(Number.isFinite(war.momentum) && war.momentum >= -100 && war.momentum <= 100, `seed ${seed} week ${world.week}: momentum out of bounds`);
-      if (war.frontCellId) invariant(Boolean(world.geography.cells.find((cell) => cell.id === war.frontCellId)), `seed ${seed} week ${world.week}: missing front cell ${war.frontCellId}`);
+      invariant(Boolean(war.frontCellId), `seed ${seed} week ${world.week}: active war lost its physical front`);
+      invariant(Boolean(world.geography.cells.find((cell) => cell.id === war.frontCellId)), `seed ${seed} week ${world.week}: missing front cell ${war.frontCellId}`);
       participants.add(war.a);
       participants.add(war.b);
     }

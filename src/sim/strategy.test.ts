@@ -111,4 +111,18 @@ describe("SimCountry phase 2 strategic geography", () => {
     expect(war!.supplyB).toBeLessThanOrEqual(100);
     expect(war!.frontCellId).not.toBeNull();
   });
+
+  test("autonomous war declarations never create an offshore placeholder front", () => {
+    const world = createInitialWorld(1978);
+    let sawWar = false;
+    for (let week = 0; week < 52 * 60; week++) {
+      tickWeek(world);
+      for (const war of world.wars) {
+        sawWar = true;
+        expect(war.frontCellId).not.toBeNull();
+        expect(world.geography.cells.some((cell) => cell.id === war.frontCellId)).toBe(true);
+      }
+    }
+    expect(sawWar).toBe(true);
+  }, 30_000);
 });

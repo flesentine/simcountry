@@ -30,19 +30,30 @@ function renderMap(selected: Country) {
   const routes = geography.routes.filter((route) => route.a === selected.id || route.b === selected.id);
   const territory = geography.cells.filter((cell) => cell.ownerId === selected.id);
   const ports = selectedCities.filter((city) => city.port);
+  const selectedWar = world.wars.find((war) => war.a === selected.id || war.b === selected.id);
+
   const routeLines = geography.routes.map((route) => {
     const from = cityById(route.fromCityId);
     const to = cityById(route.toCityId);
     if (!from || !to) return "";
     const active = route.a === selected.id || route.b === selected.id;
-    return `<line class="map-route ${route.mode} ${active ? "active" : ""}" x1="${(from.x + 0.5) * CELL}" y1="${(from.y + 0.5) * CELL}" x2="${(to.x + 0.5) * CELL}" y2="${(to.y + 0.5) * CELL}"><title>${route.mode} route · ${fmt(route.distance, 1)} distance · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} used</title></line>`;
+    const closed = Boolean(route.blockedBy);
+    return `<line class="map-route ${route.mode} level-${route.level} ${route.chokepoint ? "chokepoint" : ""} ${closed ? "blocked" : ""} ${active ? "active" : ""}" x1="${(from.x + 0.5) * CELL}" y1="${(from.y + 0.5) * CELL}" x2="${(to.x + 0.5) * CELL}" y2="${(to.y + 0.5) * CELL}"><title>${route.infrastructure} level ${route.level} · ${fmt(route.condition)}% condition · ${fmt(route.distance, 1)} distance · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} used${route.chokepoint ? " · strategic chokepoint" : ""}${route.blockedBy ? ` · BLOCKADED by ${countryById(route.blockedBy)?.name ?? route.blockedBy}` : ""}</title></line>`;
+  }).join("");
+
+  const fronts = world.wars.map((war) => {
+    if (!war.frontCellId) return "";
+    const cell = geography.cells.find((candidate) => candidate.id === war.frontCellId);
+    if (!cell) return "";
+    const involved = war.a === selected.id || war.b === selected.id;
+    return `<g class="war-front ${involved ? "active" : ""}" transform="translate(${(cell.x + 0.5) * CELL} ${(cell.y + 0.5) * CELL})"><circle r="7"></circle><path d="M-5,-5 L5,5 M5,-5 L-5,5"></path><title>${countryById(war.a)?.name}–${countryById(war.b)?.name} front · momentum ${fmt(war.momentum, 1)} · supply ${Math.round(war.supplyA)}/${Math.round(war.supplyB)}</title></g>`;
   }).join("");
 
   return `
     <section class="panel map-panel" aria-label="Generated world geography">
       <div class="panel-heading">
-        <div><span class="dot" style="background:${selected.color}"></span><h2>Physical world</h2></div>
-        <span>${geography.width}×${geography.height} · ${geography.routes.length} routes</span>
+        <div><span class="dot" style="background:${selected.color}"></span><h2>Strategic world</h2></div>
+        <span>${geography.width}×${geography.height} · ${geography.routes.length} corridors</span>
       </div>
       <div class="map-layout">
         <div class="map-stage">
@@ -56,10 +67,11 @@ function renderMap(selected: Country) {
             ${geography.cities.map((city) => {
               const owner = countryById(city.countryId);
               const selectedCity = city.countryId === selected.id;
-              return `<circle class="map-city ${city.capital ? "capital" : ""} ${city.port ? "port" : ""} ${selectedCity ? "selected-city" : ""}" data-country="${city.countryId}" cx="${(city.x + 0.5) * CELL}" cy="${(city.y + 0.5) * CELL}" r="${city.capital ? 5.2 : 3.8}" style="--city-country:${owner?.color ?? "#fff"}"><title>${city.name}${city.capital ? " · capital" : ""}${city.port ? " · port" : ""} · ${fmt(city.population, 1)}M urban population</title></circle>`;
+              return `<circle class="map-city ${city.capital ? "capital" : ""} ${city.port ? "port" : ""} ${selectedCity ? "selected-city" : ""}" data-country="${city.countryId}" cx="${(city.x + 0.5) * CELL}" cy="${(city.y + 0.5) * CELL}" r="${city.capital ? 5.2 : 3.8}" style="--city-country:${owner?.color ?? "#fff"}"><title>${city.name}${city.capital ? " · capital" : ""}${city.port ? " · port" : ""} · ${fmt(city.population, 1)}M urban population · industry ${fmt(city.industry, 1)}</title></circle>`;
             }).join("")}
+            <g class="front-layer">${fronts}</g>
           </svg>
-          <div class="map-legend"><span>■ territory</span><span>● city</span><span>◎ port</span><span>— land route</span><span>┄ sea route</span></div>
+          <div class="map-legend"><span>■ territory</span><span>● city</span><span>◎ port</span><span>— road/rail</span><span>┄ sea lane</span><span>◆ chokepoint</span><span>× front</span></div>
         </div>
         <aside class="map-inspector">
           <div class="map-country-title"><i style="background:${selected.color}"></i><div><strong>${selected.name}</strong><span>${territory.length} land regions</span></div></div>
@@ -69,14 +81,23 @@ function renderMap(selected: Country) {
             <div><dt>Neighbors</dt><dd>${neighbors.length}</dd></div>
             <div><dt>Routes</dt><dd>${routes.length}</dd></div>
           </dl>
+          ${selectedWar ? `
+            <div class="war-card">
+              <strong>ACTIVE FRONT</strong>
+              <span>${countryById(selectedWar.a)?.name} vs ${countryById(selectedWar.b)?.name}</span>
+              <small>region ${selectedWar.frontCellId ?? "offshore"} · momentum ${fmt(selectedWar.momentum, 1)}</small>
+              <small>supply ${countryById(selectedWar.a)?.name}: ${Math.round(selectedWar.supplyA)} · ${countryById(selectedWar.b)?.name}: ${Math.round(selectedWar.supplyB)}</small>
+              <small>captured regions ${selectedWar.capturedA} / ${selectedWar.capturedB} · blockades ${selectedWar.blockadeRouteIds.length}</small>
+            </div>` : ""}
           <h4>Urban network</h4>
-          <div class="map-list">${selectedCities.map((city) => `<span><b>${city.name}</b><small>${city.capital ? "capital · " : ""}${city.port ? "port · " : ""}${fmt(city.population, 1)}M</small></span>`).join("")}</div>
+          <div class="map-list">${selectedCities.map((city) => `<span><b>${city.name}</b><small>${city.capital ? "capital · " : ""}${city.port ? "port · " : ""}${fmt(city.population, 1)}M · industry ${fmt(city.industry, 1)}</small></span>`).join("")}</div>
           <h4>Land frontiers</h4>
           <p>${neighbors.length ? neighbors.join(" · ") : "No direct land borders"}</p>
-          <h4>Transport</h4>
-          <div class="map-list">${routes.slice(0, 8).map((route) => {
+          <h4>Strategic transport</h4>
+          <div class="map-list">${routes.slice(0, 10).map((route) => {
             const otherId = route.a === selected.id ? route.b : route.a;
-            return `<span><b>${route.mode} → ${countryById(otherId)?.name ?? otherId}</b><small>${fmt(route.distance, 1)} dist · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} capacity</small></span>`;
+            const blocked = route.blockedBy ? ` · BLOCKADED by ${countryById(route.blockedBy)?.name ?? route.blockedBy}` : "";
+            return `<span class="${route.blockedBy ? "route-blocked" : ""}"><b>${route.infrastructure} L${route.level} → ${countryById(otherId)?.name ?? otherId}${route.chokepoint ? " ◆" : ""}</b><small>${fmt(route.condition)}% condition · ${fmt(route.usedThisWeek, 1)}/${fmt(route.capacity, 1)} capacity${blocked}</small></span>`;
           }).join("") || "<p>No international route</p>"}</div>
         </aside>
       </div>
@@ -85,6 +106,8 @@ function renderMap(selected: Country) {
 
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
+  const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
+  const upgraded = world.geography.routes.filter((route) => route.level > 1).length;
   app.innerHTML = `
     <header class="topbar">
       <div>
@@ -111,8 +134,8 @@ function render() {
       <section class="summary" aria-label="World summary">
         <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.population, 0))}M</strong><span>population</span></div>
         <div><strong>${world.wars.length}</strong><span>active wars</span></div>
-        <div><strong>${world.geography.cities.length}</strong><span>cities</span></div>
-        <div><strong>${world.geography.routes.length}</strong><span>trade routes</span></div>
+        <div><strong>${upgraded}</strong><span>upgraded corridors</span></div>
+        <div><strong>${blockades}</strong><span>active blockades</span></div>
       </section>
 
       ${renderMap(selected)}

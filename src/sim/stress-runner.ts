@@ -316,6 +316,7 @@ invariant(fulfilledFixtureObligations >= SEEDS.length * 0.9, `only ${fulfilledFi
 invariant(worldsWithNegotiations >= SEEDS.length * 0.9, `only ${worldsWithNegotiations} worlds generated autonomous diplomacy`);
 invariant(worldsWithAcceptedNegotiations >= SEEDS.length * 0.7, `only ${worldsWithAcceptedNegotiations} worlds signed autonomous agreements`);
 invariant(acceptedNegotiations > SEEDS.length, `only ${acceptedNegotiations} autonomous negotiations reached agreement`);
+invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNegotiations}/${negotiationsStarted} autonomous negotiations were rejected; cabinet bargaining is too agreeable`);
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
 invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);

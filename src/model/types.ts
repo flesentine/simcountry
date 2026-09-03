@@ -185,6 +185,24 @@ export type TreatyClauseStatus = "pending" | "active" | "fulfilled" | "violated"
 export type TreatyClauseClass = "permission" | "obligation" | "restriction";
 export type TreatyClauseKind = "preferential_trade" | "tariff" | "quota" | "non_aggression" | "sanction" | "loan" | "reparations";
 
+export type TreatyClauseDraft =
+  | { kind: "preferential_trade"; grantorId: string; beneficiaryId: string; discountPct: number; resource?: Resource | null }
+  | { kind: "tariff"; importerId: string; exporterId: string; ratePct: number; resource?: Resource | null }
+  | { kind: "quota"; exporterId: string; importerId: string; resource: Resource; maxUnitsPerWeek: number }
+  | { kind: "non_aggression" }
+  | { kind: "sanction"; imposerId: string; targetId: string; resource?: Resource | null }
+  | { kind: "loan"; creditorId: string; debtorId: string; principal: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number }
+  | { kind: "reparations"; payerId: string; payeeId: string; totalAmount: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number };
+
+export interface TreatyDraft {
+  title: string;
+  parties: [string, string];
+  effectiveWeek?: number;
+  expiryWeek?: number | null;
+  withdrawalNoticeWeeks?: number;
+  clauses: TreatyClauseDraft[];
+}
+
 interface TreatyClauseBase {
   id: string;
   class: TreatyClauseClass;
@@ -309,6 +327,60 @@ export interface TreatyViolation {
   severity: number;
 }
 
+export type NegotiationMotive = "trade_access" | "security" | "financing" | "sanctions_relief" | "reparations";
+export type NegotiationStatus = "open" | "accepted" | "rejected" | "expired" | "cancelled";
+export type ProposalStatus = "pending" | "accepted" | "rejected" | "countered" | "expired";
+export type CabinetDecision = "approve" | "counter" | "reject";
+
+export interface ProposalScoreComponent {
+  actor: "leader" | MinistryKind;
+  score: number;
+  weight: number;
+  rationale: string;
+}
+
+export interface CabinetEvaluation {
+  countryId: string;
+  proposalId: string;
+  week: number;
+  totalScore: number;
+  threshold: number;
+  decision: CabinetDecision;
+  components: ProposalScoreComponent[];
+}
+
+export interface Proposal {
+  id: string;
+  negotiationId: string;
+  round: number;
+  proposerId: string;
+  recipientId: string;
+  motive: NegotiationMotive;
+  createdWeek: number;
+  expiresWeek: number;
+  responseToProposalId: string | null;
+  draft: TreatyDraft;
+  status: ProposalStatus;
+  decisionReason: string | null;
+  evaluations: CabinetEvaluation[];
+}
+
+export interface Negotiation {
+  id: string;
+  parties: [string, string];
+  initiatorId: string;
+  motive: NegotiationMotive;
+  status: NegotiationStatus;
+  startedWeek: number;
+  lastActionWeek: number;
+  cooldownUntilWeek: number;
+  currentProposalId: string | null;
+  proposalIds: string[];
+  maxRounds: number;
+  outcomeTreatyId: string | null;
+  terminalReason: string | null;
+}
+
 export type EventKind = "trade" | "war" | "peace" | "economy" | "politics" | "diplomacy" | "world";
 
 export interface WorldEvent {
@@ -323,11 +395,15 @@ export interface WorldState {
   week: number;
   nextEventId: number;
   nextTreatyId: number;
+  nextNegotiationId: number;
+  nextProposalId: number;
   countries: Country[];
   geography: Geography;
   wars: War[];
   truces: Truce[];
   treaties: Treaty[];
   treatyViolations: TreatyViolation[];
+  negotiations: Negotiation[];
+  proposals: Proposal[];
   events: WorldEvent[];
 }

@@ -18,6 +18,7 @@ const weekLabel = (week: number) => `Y${Math.floor(week / 52) + 1} · W${(week %
 const atWar = (country: Country) => world.wars.some((war) => war.a === country.id || war.b === country.id);
 const countryById = (id: string) => world.countries.find((country) => country.id === id);
 const cityById = (id: string) => world.geography.cities.find((city) => city.id === id);
+const systemLabel = (system: string) => system.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
 
 function eventIcon(event: WorldEvent) {
   return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", world: "◎" } as const)[event.kind];
@@ -104,10 +105,44 @@ function renderMap(selected: Country) {
     </section>`;
 }
 
+function renderGovernment(selected: Country) {
+  const government = selected.government;
+  const agenda = government.agenda;
+  return `
+    <h3>Government</h3>
+    <div class="profile-grid">
+      <span>System <b>${systemLabel(government.system)}</b></span>
+      <span>${government.leader.title} <b>${government.leader.name}</b></span>
+      <span>Legitimacy <b>${fmt(government.legitimacy)}%</b></span>
+      <span>Cohesion <b>${fmt(government.cohesion)}%</b></span>
+      <span>Dissent <b>${fmt(government.dissent)}%</b></span>
+      <span>Leader competence <b>${government.leader.competence}</b></span>
+    </div>
+    <h3>Cabinet agenda</h3>
+    <div class="profile-grid">
+      <span>Tax effort <b>${fmt(agenda.taxEffort)}</b></span>
+      <span>Civil spending <b>${fmt(agenda.civilSpending)}</b></span>
+      <span>Trade openness <b>${fmt(agenda.tradeOpenness)}</b></span>
+      <span>Diplomatic engagement <b>${fmt(agenda.diplomaticEngagement)}</b></span>
+      <span>Defense posture <b>${fmt(agenda.defensePosture)}</b></span>
+      <span>Infrastructure <b>${fmt(agenda.infrastructure)}</b></span>
+      <span>Internal security <b>${fmt(agenda.internalSecurity)}</b></span>
+    </div>
+    <h3>Delegated objectives</h3>
+    <div class="relations">
+      ${government.objectives.map((objective) => `<div><span>${objective.label}</span><small>${objective.assignedTo} · priority ${fmt(objective.priority)} · ${objective.status}</small><i class="relation-bar"><u style="width:${objective.progress}%"></u></i></div>`).join("")}
+    </div>
+    <h3>Cabinet</h3>
+    <div class="relations">
+      ${Object.values(government.ministries).map((ministry) => `<div><span>${ministry.name}</span><small>${ministry.minister} · competence ${ministry.competence} · influence ${ministry.influence} · loyalty ${ministry.loyalty}</small><i class="relation-bar"><u style="width:${ministry.competence}%"></u></i></div>`).join("")}
+    </div>`;
+}
+
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
   const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
   const upgraded = world.geography.routes.filter((route) => route.level > 1).length;
+  const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
   app.innerHTML = `
     <header class="topbar">
       <div>
@@ -135,7 +170,7 @@ function render() {
         <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.population, 0))}M</strong><span>population</span></div>
         <div><strong>${world.wars.length}</strong><span>active wars</span></div>
         <div><strong>${upgraded}</strong><span>upgraded corridors</span></div>
-        <div><strong>${blockades}</strong><span>active blockades</span></div>
+        <div><strong>${fmt(avgLegitimacy)}%</strong><span>avg legitimacy</span></div>
       </section>
 
       ${renderMap(selected)}
@@ -146,10 +181,10 @@ function render() {
             <span class="country-name"><i></i>${country.name}${atWar(country) ? " <em>WAR</em>" : ""}</span>
             <span class="country-stat"><b>${fmt(country.population)}M</b> people</span>
             <span class="country-stat"><b>$${fmt(country.treasury, 1)}B</b> treasury</span>
-            <span class="country-stat"><b>${fmt(country.military, 1)}/${fmt(country.militaryCapacity, 0)}</b> military</span>
+            <span class="country-stat"><b>${fmt(country.government.legitimacy)}%</b> legitimacy</span>
             <span class="meters">
               <span><small>stability</small><i><u style="width:${country.stability}%"></u></i></span>
-              <span><small>readiness</small><i><u style="width:${country.readiness}%"></u></i></span>
+              <span><small>cohesion</small><i><u style="width:${country.government.cohesion}%"></u></i></span>
             </span>
           </button>
         `).join("")}
@@ -170,6 +205,7 @@ function render() {
             <span>Diplomacy <b>${selected.policy.diplomacy}</b></span>
             <span>Stability <b>${fmt(selected.stability)}%</b></span>
           </div>
+          ${renderGovernment(selected)}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {

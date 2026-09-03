@@ -19,6 +19,71 @@ export interface PolicyProfile {
   diplomacy: number;
 }
 
+export type GovernmentSystem = "parliamentary_republic" | "presidential_republic" | "constitutional_monarchy" | "one_party_state" | "military_directorate";
+export type MinistryKind = "finance" | "trade" | "foreign" | "defense" | "interior";
+export type PolicyDomain = "economy" | "trade" | "diplomacy" | "defense" | "stability";
+export type InstitutionalPosition = Record<PolicyDomain, number>;
+
+export interface LeaderTraits {
+  riskTolerance: number;
+  nationalism: number;
+  pragmatism: number;
+  corruption: number;
+  ambition: number;
+}
+
+export interface Leader {
+  name: string;
+  title: string;
+  competence: number;
+  authority: number;
+  traits: LeaderTraits;
+  position: InstitutionalPosition;
+}
+
+export interface Ministry {
+  kind: MinistryKind;
+  name: string;
+  minister: string;
+  competence: number;
+  influence: number;
+  loyalty: number;
+  position: InstitutionalPosition;
+}
+
+export interface GovernmentAgenda {
+  taxEffort: number;
+  civilSpending: number;
+  tradeOpenness: number;
+  diplomaticEngagement: number;
+  defensePosture: number;
+  infrastructure: number;
+  internalSecurity: number;
+}
+
+export type ObjectiveKind = "fiscal" | "trade" | "diplomacy" | "defense" | "infrastructure" | "stability";
+export interface GovernmentObjective {
+  id: string;
+  kind: ObjectiveKind;
+  label: string;
+  assignedTo: MinistryKind;
+  priority: number;
+  progress: number;
+  status: "active" | "achieved";
+}
+
+export interface Government {
+  system: GovernmentSystem;
+  leader: Leader;
+  ministries: Record<MinistryKind, Ministry>;
+  agenda: GovernmentAgenda;
+  legitimacy: number;
+  cohesion: number;
+  dissent: number;
+  lastDecisionWeek: number;
+  objectives: GovernmentObjective[];
+}
+
 export interface Country {
   id: string;
   name: string;
@@ -33,6 +98,7 @@ export interface Country {
   readiness: number;
   stability: number;
   policy: PolicyProfile;
+  government: Government;
   relations: Record<string, Relation>;
 }
 

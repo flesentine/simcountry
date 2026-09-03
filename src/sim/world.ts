@@ -1,6 +1,7 @@
-import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
+import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
+import { createGovernment, governmentModifiers, runGovernments } from "./governance";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
@@ -23,8 +24,15 @@ export function createInitialWorld(seed = 1978): WorldState {
     const population = rng.int(18, 92);
     const treasury = rng.int(130, 360);
     const militaryCapacity = rng.int(35, 105);
+    const id = name.toLowerCase();
+    const policy = {
+      risk: rng.int(15, 90),
+      expansionism: rng.int(10, 92),
+      commerce: rng.int(28, 95),
+      diplomacy: rng.int(20, 92),
+    };
     return {
-      id: name.toLowerCase(),
+      id,
       name,
       color: COLORS[index],
       population,
@@ -46,12 +54,8 @@ export function createInitialWorld(seed = 1978): WorldState {
       militaryCapacity,
       readiness: rng.int(42, 82),
       stability: rng.int(55, 88),
-      policy: {
-        risk: rng.int(15, 90),
-        expansionism: rng.int(10, 92),
-        commerce: rng.int(28, 95),
-        diplomacy: rng.int(20, 92),
-      },
+      policy,
+      government: createGovernment(name, id, policy, rng, index),
       relations: {},
     };
   });
@@ -73,7 +77,7 @@ export function createInitialWorld(seed = 1978): WorldState {
   const landCells = geography.cells.filter((cell) => cell.land).length;
   const ports = geography.cities.filter((city) => city.port).length;
   const chokepoints = geography.routes.filter((route) => route.chokepoint).length;
-  addEvent(world, "world", `Eight sovereign states enter a ${geography.width}×${geography.height} physical world with ${landCells} land regions, ${geography.cities.length} cities, ${ports} ports, ${geography.routes.length} transport routes and ${chokepoints} maritime chokepoints. Seed ${seed}.`);
+  addEvent(world, "world", `Eight sovereign states enter a ${geography.width}×${geography.height} physical world with ${landCells} land regions, ${geography.cities.length} cities, ${ports} ports, ${geography.routes.length} transport routes and ${chokepoints} maritime chokepoints. Their leaders and ministries begin governing under competing institutional priorities. Seed ${seed}.`);
   return world;
 }
 
@@ -96,6 +100,7 @@ function expireTruces(world: WorldState) {
 
 function runEconomy(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const country of world.countries) {
+    const government = governmentModifiers(country);
     let shortagePressure = 0;
     for (const resource of RESOURCE_KEYS) {
       const productivityNoise = 0.93 + rng.next() * 0.14;
@@ -108,24 +113,26 @@ function runEconomy(world: WorldState, rng: ReturnType<typeof createRng>) {
       country.resources[resource] = round(Math.max(0, country.resources[resource]));
     }
 
-    const taxBase = country.population * 0.024 * (0.6 + country.stability / 125);
-    const civilSpending = country.population * 0.018;
+    const taxBase = country.population * 0.024 * (0.6 + country.stability / 125) * government.taxMultiplier;
+    const civilSpending = country.population * 0.018 * government.civilMultiplier;
+    const militarySpending = country.military * 0.006 * government.defenseMultiplier;
     const reserveTarget = country.population * 8;
     const reserveInvestment = Math.max(0, country.treasury - reserveTarget) * 0.0015;
-    country.treasury += taxBase - country.military * 0.006 - civilSpending - reserveInvestment;
+    country.treasury += taxBase - militarySpending - civilSpending - reserveInvestment;
     country.treasury = Math.max(-country.population * 5, country.treasury);
-    country.stability = clamp(country.stability + 0.035 - shortagePressure * 0.9 + (country.treasury < 0 ? -0.025 : 0));
+    const governanceStability = (government.civilMultiplier - 1) * 0.035 + (government.internalSecurity - 50) * 0.00035;
+    country.stability = clamp(country.stability + 0.035 + governanceStability - shortagePressure * 0.9 + (country.treasury < 0 ? -0.025 : 0));
 
     if (countryAtWar(world, country.id)) {
       country.readiness = clamp(country.readiness - 0.015 + (country.treasury < 0 ? -0.035 : 0));
     } else {
-      const readinessTarget = clamp(38 + country.policy.risk * 0.22 + country.policy.expansionism * 0.16 + country.policy.diplomacy * 0.06, 40, 82);
+      const readinessTarget = clamp(38 + country.policy.risk * 0.22 + country.policy.expansionism * 0.16 + country.policy.diplomacy * 0.06 + (government.defenseMultiplier - 1) * 8, 40, 84);
       country.readiness = clamp(country.readiness + (readinessTarget - country.readiness) * 0.018 + (country.treasury >= 0 ? 0.01 : -0.06));
 
       if (country.military < country.militaryCapacity && country.treasury > 0) {
         let recruits = Math.min(
           country.militaryCapacity - country.military,
-          0.05 + country.population * 0.0015 + country.stability * 0.0008,
+          (0.05 + country.population * 0.0015 + country.stability * 0.0008) * government.defenseMultiplier,
         );
         const recruitCost = recruits * 0.9;
         if (recruitCost > country.treasury) recruits *= country.treasury / recruitCost;
@@ -154,7 +161,7 @@ function runTrade(world: WorldState) {
 
     const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
     const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
-    const sellerReserveWeeks = 11 - seller.policy.commerce / 25;
+    const sellerReserveWeeks = getSellerReserveWeeks(seller);
     const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
     const routeCapacity = routeRemainingCapacity(route);
@@ -226,6 +233,9 @@ function enforceStateBounds(world: WorldState) {
     country.readiness = clamp(country.readiness);
     country.stability = clamp(country.stability);
     country.population = Math.max(4, country.population);
+    country.government.legitimacy = clamp(country.government.legitimacy);
+    country.government.cohesion = clamp(country.government.cohesion);
+    country.government.dissent = clamp(country.government.dissent);
   }
 }
 
@@ -264,7 +274,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       lastCaptureWeek: world.week,
       blockadeRouteIds: [],
     });
-    addEvent(world, "war", `${attacker.name} declares war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; the first operational front is ${front?.id ?? "offshore"}.`);
+    addEvent(world, "war", `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; the first operational front is ${front?.id ?? "offshore"}.`);
   }
 }
 
@@ -351,6 +361,8 @@ export function tickWeek(world: WorldState): WorldState {
   expireTruces(world);
   resetRouteUsage(world);
   const rng = createRng(world.seed + world.week * 7919);
+
+  for (const message of runGovernments(world, rng)) addEvent(world, "politics", message);
   runEconomy(world, rng);
 
   const blockadeMessages = updateWarLogistics(world);

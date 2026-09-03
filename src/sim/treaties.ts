@@ -46,7 +46,7 @@ export interface TreatyTradePolicy {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
-const TERMINAL_STATUSES = new Set<Treaty["status"]>(["fulfilled", "expired", "withdrawn"]);
+const TERMINAL_STATUSES = new Set<Treaty["status"]>(["fulfilled", "violated", "expired", "withdrawn"]);
 
 function countryById(world: WorldState, id: string) {
   return world.countries.find((country) => country.id === id);
@@ -96,7 +96,7 @@ function buildClause(draft: TreatyClauseDraft, treatyId: string, index: number, 
       ...base,
       class: "obligation",
       kind: draft.kind,
-      creditorId: draft.creditorId,
+      creditorId: draft.credititorId,
       debtorId: draft.debtorId,
       principal: draft.principal,
       installment: draft.installment,
@@ -139,15 +139,23 @@ function tradePairForClause(clause: TreatyClause) {
   return null;
 }
 
+function sameDirection(a: TreatyClause, b: TreatyClause) {
+  if (a.kind === "tariff" && b.kind === "tariff") return a.importerId === b.importerId && a.exporterId === b.exporterId;
+  if (a.kind === "preferential_trade" && b.kind === "preferential_trade") return a.grantorId === b.grantorId && a.beneficiaryId === b.beneficiaryId;
+  if (a.kind === "quota" && b.kind === "quota") return a.exporterId === b.exporterId && a.importerId === b.importerId;
+  if (a.kind === "tariff" && b.kind === "preferential_trade") return a.importerId === b.grantorId && a.exporterId === b.beneficiaryId;
+  if (a.kind === "preferential_trade" && b.kind === "tariff") return a.grantorId === b.importerId && a.beneficiaryId === b.exporterId;
+  return false;
+}
+
 function clausesConflict(a: TreatyClause, b: TreatyClause) {
   if (a.kind === "non_aggression" && b.kind === "non_aggression") return true;
   const ap = tradePairForClause(a);
   const bp = tradePairForClause(b);
   if (!ap || !bp || pairKey(ap.a, ap.b) !== pairKey(bp.a, bp.b) || !resourceOverlaps(ap.resource, bp.resource)) return false;
   if (a.kind === "sanction" || b.kind === "sanction") return true;
-  if ((a.kind === "tariff" && b.kind === "preferential_trade") || (a.kind === "preferential_trade" && b.kind === "tariff")) return true;
-  if (a.kind === b.kind && a.kind !== "quota") return true;
-  if (a.kind === "quota" && b.kind === "quota") return a.exporterId === b.exporterId && a.importerId === b.importerId;
+  if ((a.kind === "tariff" || a.kind === "preferential_trade") && (b.kind === "tariff" || b.kind === "preferential_trade")) return sameDirection(a, b);
+  if (a.kind === "quota" && b.kind === "quota") return sameDirection(a, b);
   return false;
 }
 
@@ -456,7 +464,7 @@ export function requestTreatyWithdrawal(world: WorldState, treatyId: string, cou
   const treaty = world.treaties.find((candidate) => candidate.id === treatyId);
   if (!treaty) return { ok: false as const, error: "treaty not found" };
   if (!treaty.parties.includes(countryId)) return { ok: false as const, error: "only a treaty party may request withdrawal" };
-  if (TERMINAL_STATUSES.has(treaty.status) || treaty.status === "violated") return { ok: false as const, error: "treaty is already terminal" };
+  if (TERMINAL_STATUSES.has(treaty.status)) return { ok: false as const, error: "treaty is already terminal" };
   if (treaty.withdrawalRequestedBy) return { ok: false as const, error: "withdrawal has already been requested" };
   treaty.withdrawalRequestedBy = countryId;
   treaty.withdrawalEffectiveWeek = world.week + treaty.withdrawalNoticeWeeks;
@@ -469,7 +477,7 @@ export function processTreaties(world: WorldState) {
   for (const treaty of world.treaties) {
     if (treaty.status === "pending" && world.week >= treaty.effectiveWeek) {
       activateTreaty(world, treaty);
-      if (treaty.status === "active") messages.push(`${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`);
+      if (treaty.activatedWeek === world.week) messages.push(`${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`);
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.withdrawalEffectiveWeek !== null && world.week >= treaty.withdrawalEffectiveWeek) {

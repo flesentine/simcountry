@@ -24,6 +24,10 @@ const NEGOTIATION_COOLDOWN_WEEKS = 39;
 const ACCEPTED_COOLDOWN_WEEKS = 78;
 const MAX_ROUNDS = 3;
 const INITIATION_INTERVAL_WEEKS = 13;
+// With eight countries and bandwidth capped at three, at most twelve talks can
+// be open at once. A 128-item tail safely covers every agreement that can still
+// be open or inside the longest (78-week) cooldown while preserving full history.
+const OPERATIONAL_NEGOTIATION_WINDOW = 128;
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const round = (value: number, digits = 1) => {
@@ -47,6 +51,12 @@ function hasDirectRoute(world: WorldState, a: string, b: string) {
   return world.geography.routes.some((route) => pairKey(route.a, route.b) === pairKey(a, b));
 }
 
+function operationalNegotiations(world: WorldState) {
+  return world.negotiations.length <= OPERATIONAL_NEGOTIATION_WINDOW
+    ? world.negotiations
+    : world.negotiations.slice(-OPERATIONAL_NEGOTIATION_WINDOW);
+}
+
 export function ensureNegotiationState(world: WorldState) {
   world.nextNegotiationId ??= 1;
   world.nextProposalId ??= 1;
@@ -58,15 +68,6 @@ export function diplomaticBandwidth(country: Country) {
   const foreign = country.government.ministries.foreign;
   const engagement = country.government.agenda.diplomaticEngagement;
   return 1 + (engagement >= 58 ? 1 : 0) + (engagement >= 76 && foreign.competence >= 68 ? 1 : 0);
-}
-
-function openNegotiationCount(world: WorldState, countryId: string) {
-  return world.negotiations.filter((negotiation) => negotiation.status === "open" && negotiation.parties.includes(countryId)).length;
-}
-
-function pairUnavailable(world: WorldState, a: string, b: string) {
-  const key = pairKey(a, b);
-  return world.negotiations.some((negotiation) => pairKey(negotiation.parties[0], negotiation.parties[1]) === key && (negotiation.status === "open" || negotiation.cooldownUntilWeek > world.week));
 }
 
 function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft) {
@@ -379,7 +380,13 @@ function terminalize(negotiation: Negotiation, status: Negotiation["status"], wo
 }
 
 function proposalById(world: WorldState, id: string | null) {
-  return id ? world.proposals.find((proposal) => proposal.id === id) : undefined;
+  if (!id) return undefined;
+  const numericId = Number(id.startsWith("proposal-") ? id.slice("proposal-".length) : NaN);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const candidate = world.proposals[numericId - 1];
+    if (candidate?.id === id) return candidate;
+  }
+  return world.proposals.find((proposal) => proposal.id === id);
 }
 
 function createProposal(
@@ -495,12 +502,24 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
   const messages: string[] = [];
   if (world.week % INITIATION_INTERVAL_WEEKS !== 0) return messages;
 
+  const openCounts = new Map<string, number>();
+  const unavailablePairs = new Set<string>();
+  for (const negotiation of operationalNegotiations(world)) {
+    const key = pairKey(negotiation.parties[0], negotiation.parties[1]);
+    if (negotiation.status === "open") {
+      unavailablePairs.add(key);
+      for (const partyId of negotiation.parties) openCounts.set(partyId, (openCounts.get(partyId) ?? 0) + 1);
+    } else if (negotiation.cooldownUntilWeek > world.week) {
+      unavailablePairs.add(key);
+    }
+  }
+
   for (const proposer of world.countries) {
-    if (openNegotiationCount(world, proposer.id) >= diplomaticBandwidth(proposer)) continue;
+    if ((openCounts.get(proposer.id) ?? 0) >= diplomaticBandwidth(proposer)) continue;
     const candidates = world.countries
       .filter((recipient) => recipient.id !== proposer.id)
-      .filter((recipient) => !pairUnavailable(world, proposer.id, recipient.id))
-      .filter((recipient) => openNegotiationCount(world, recipient.id) < diplomaticBandwidth(recipient))
+      .filter((recipient) => !unavailablePairs.has(pairKey(proposer.id, recipient.id)))
+      .filter((recipient) => (openCounts.get(recipient.id) ?? 0) < diplomaticBandwidth(recipient))
       .flatMap((recipient) => motiveScores(world, proposer, recipient).map((entry) => ({ recipient, ...entry })))
       .sort((a, b) => b.score - a.score);
 
@@ -516,6 +535,9 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       if (rng.next() > initiationChance) break;
       const started = startNegotiation(world, proposer, candidate.recipient, candidate.motive, validated);
       if (!started) continue;
+      unavailablePairs.add(pairKey(proposer.id, candidate.recipient.id));
+      openCounts.set(proposer.id, (openCounts.get(proposer.id) ?? 0) + 1);
+      openCounts.set(candidate.recipient.id, (openCounts.get(candidate.recipient.id) ?? 0) + 1);
       messages.push(`${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.`);
       break;
     }
@@ -527,7 +549,8 @@ export function processNegotiations(world: WorldState, rng: NegotiationRng) {
   ensureNegotiationState(world);
   const messages: string[] = [];
 
-  for (const negotiation of world.negotiations.filter((candidate) => candidate.status === "open")) {
+  for (const negotiation of operationalNegotiations(world)) {
+    if (negotiation.status !== "open") continue;
     const current = proposalById(world, negotiation.currentProposalId);
     if (!current) {
       terminalize(negotiation, "cancelled", world, "missing_current_proposal");
@@ -572,7 +595,7 @@ export function negotiationSummaryFor(country: Country, world: WorldState) {
   const negotiations = world.negotiations.filter((negotiation) => negotiation.parties.includes(country.id));
   return {
     total: negotiations.length,
-    open: negotiations.filter((negotiation) => negotiation.status === "open").length,
+    open: operationalNegotiations(world).filter((negotiation) => negotiation.status === "open" && negotiation.parties.includes(country.id)).length,
     accepted: negotiations.filter((negotiation) => negotiation.status === "accepted").length,
     rejected: negotiations.filter((negotiation) => negotiation.status === "rejected").length,
     bandwidth: diplomaticBandwidth(country),

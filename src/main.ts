@@ -1,7 +1,7 @@
 import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
-import { negotiationMotiveLabel, negotiationSummaryFor } from "./sim/negotiation";
+import { negotiationSummaryFor } from "./sim/negotiation";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 

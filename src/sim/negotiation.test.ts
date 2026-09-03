@@ -115,6 +115,72 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(signed.effectiveWeek).toBeGreaterThanOrEqual(signed.signedWeek);
   });
 
+  test("a hardline cabinet can reject a strategically costly agreement", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const proposer = world.countries.find((country) => country.id === route.a)!;
+    const recipient = world.countries.find((country) => country.id === route.b)!;
+    world.week = 14;
+
+    recipient.policy.expansionism = 100;
+    recipient.policy.diplomacy = 5;
+    recipient.government.dissent = 100;
+    recipient.government.cohesion = 0;
+    recipient.government.legitimacy = 0;
+    recipient.relations[proposer.id]!.trust = 5;
+    recipient.relations[proposer.id]!.tension = 5;
+
+    const draft: TreatyDraft = {
+      title: "Strategically costly non-aggression pact",
+      parties: [proposer.id, recipient.id],
+      effectiveWeek: 21,
+      expiryWeek: 180,
+      withdrawalNoticeWeeks: 26,
+      clauses: [{ kind: "non_aggression" }],
+    };
+    const negotiation: Negotiation = {
+      id: "negotiation-1",
+      parties: [proposer.id, recipient.id],
+      initiatorId: proposer.id,
+      motive: "security",
+      status: "open",
+      startedWeek: 13,
+      lastActionWeek: 13,
+      cooldownUntilWeek: 0,
+      currentProposalId: "proposal-1",
+      proposalIds: ["proposal-1"],
+      maxRounds: 3,
+      outcomeTreatyId: null,
+      terminalReason: null,
+    };
+    const proposal: Proposal = {
+      id: "proposal-1",
+      negotiationId: negotiation.id,
+      round: 3,
+      proposerId: proposer.id,
+      recipientId: recipient.id,
+      motive: "security",
+      createdWeek: 13,
+      expiresWeek: 25,
+      responseToProposalId: "proposal-0",
+      draft,
+      status: "pending",
+      decisionReason: null,
+      evaluations: [],
+    };
+    world.negotiations.push(negotiation);
+    world.proposals.push(proposal);
+    world.nextNegotiationId = 2;
+    world.nextProposalId = 2;
+
+    processNegotiations(world, always(1));
+
+    expect(proposal.evaluations.at(-1)?.decision).toBe("reject");
+    expect(proposal.status).toBe("rejected");
+    expect(negotiation.status).toBe("rejected");
+    expect(world.treaties).toHaveLength(0);
+  });
+
   test("a marginal creditor cabinet issues a real counterproposal", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;

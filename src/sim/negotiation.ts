@@ -89,11 +89,17 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
 
   for (const clause of draft.clauses) {
     if (clause.kind === "preferential_trade") {
-      const involved = clause.grantorId === country.id || clause.beneficiaryId === country.id;
-      if (!involved) continue;
-      add("trade", 8 + clause.discountPct * 0.35);
-      add("economy", 3 + clause.discountPct * 0.12);
-      add("diplomacy", 3);
+      if (clause.grantorId === country.id) {
+        add("trade", 9 + clause.discountPct * 0.34);
+        add("economy", 4 + clause.discountPct * 0.12);
+        add("diplomacy", 2);
+      } else if (clause.beneficiaryId === country.id) {
+        // The beneficiary is the exporter receiving the lower treaty price.
+        // It may gain access/volume, but it also bears the price concession.
+        add("trade", 3 + clause.discountPct * 0.08);
+        add("economy", -3 - clause.discountPct * 0.42);
+        add("diplomacy", 2);
+      }
     } else if (clause.kind === "tariff") {
       if (clause.importerId === country.id) {
         add("economy", 3 + clause.ratePct * 0.05);
@@ -112,9 +118,10 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         add("economy", -3);
       }
     } else if (clause.kind === "non_aggression") {
-      add("diplomacy", 7 + tension * 0.10 + trust * 0.025);
-      add("stability", 5 + tension * 0.07);
-      add("defense", 5 + tension * 0.08 - country.policy.expansionism * 0.08);
+      add("diplomacy", 4 + tension * 0.07 + trust * 0.035);
+      add("stability", 3 + tension * 0.05);
+      // A non-aggression commitment buys security but constrains revisionist states.
+      add("defense", 8 + tension * 0.10 - country.policy.expansionism * 0.22);
     } else if (clause.kind === "sanction") {
       if (clause.imposerId === country.id) {
         add("defense", 4 + tension * 0.08);
@@ -138,9 +145,11 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         const reserve = Math.max(1, country.population * 6);
         const liquidityCost = clause.principal / reserve * 100;
         const debtorStress = debtor ? clamp(-debtor.treasury / Math.max(1, debtor.population * 5) * 100) : 100;
-        add("economy", 4 + (debtorRelation?.trust ?? 25) * 0.05 - liquidityCost * 0.22 - debtorStress * 0.10);
-        add("diplomacy", 7 + (debtorRelation?.trust ?? 25) * 0.04);
-        add("stability", -liquidityCost * 0.06);
+        const trustValue = debtorRelation?.trust ?? 25;
+        const creditRisk = (100 - trustValue) * 0.12 + debtorStress * 0.18 + liquidityCost * 0.30;
+        add("economy", 6 + trustValue * 0.035 - creditRisk);
+        add("diplomacy", 5 + trustValue * 0.035);
+        add("stability", -liquidityCost * 0.10 - debtorStress * 0.04);
       }
     } else if (clause.kind === "reparations") {
       if (clause.payeeId === country.id) {

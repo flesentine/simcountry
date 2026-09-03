@@ -247,7 +247,7 @@ export function runGovernments(world: WorldState, rng: RngLike) {
       if (objective.progress >= 82) objective.status = "achieved";
     }
     const achieved = government.objectives.filter((objective) => objective.status === "achieved").length;
-    if (achieved > 0 || government.objectives.length < 3 || world.week - government.lastDecisionWeek >= 52) {
+    if (achieved > 0 || government.objectives.length < 3 || world.week % 52 === 0) {
       government.objectives = makeObjectives(country, agenda, world.week);
     }
     government.lastDecisionWeek = world.week;

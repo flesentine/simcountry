@@ -1,4 +1,4 @@
-import { chooseTradePartner, getTradeIntent, warAppetite } from "../ai/policy";
+import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -161,7 +161,7 @@ function runTrade(world: WorldState) {
 
     const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
     const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
-    const sellerReserveWeeks = 11 - seller.policy.commerce / 25;
+    const sellerReserveWeeks = getSellerReserveWeeks(seller);
     const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
     const routeCapacity = routeRemainingCapacity(route);

@@ -265,6 +265,16 @@ function createObligation(treaty: Treaty, clause: LoanClause | ReparationsClause
   };
 }
 
+function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week">) {
+  if (world.treatyViolations.some((existing) => existing.treatyId === treaty.id && existing.clauseId === violation.clauseId && existing.violatorId === violation.violatorId && existing.reason === violation.reason && existing.week === world.week)) return;
+  world.treatyViolations.push({
+    id: `violation-${treaty.id}-${world.week}-${world.treatyViolations.length + 1}`,
+    treatyId: treaty.id,
+    week: world.week,
+    ...violation,
+  });
+}
+
 function refundEscrow(world: WorldState, treaty: Treaty) {
   for (const [countryId, amount] of Object.entries(treaty.treasuryEscrow)) {
     const country = countryById(world, countryId);
@@ -279,13 +289,28 @@ function activateTreaty(world: WorldState, treaty: Treaty) {
     refundEscrow(world, treaty);
     treaty.status = "violated";
     treaty.terminalReason = "counterparty_missing";
-    return;
+    return null;
   }
-  if (treaty.clauses.some((clause) => clause.kind === "non_aggression") && world.wars.some((war) => pairKey(war.a, war.b) === pairKey(treaty.parties[0], treaty.parties[1]))) {
+
+  const nonAggressionClause = treaty.clauses.find((clause) => clause.kind === "non_aggression");
+  const blockingWar = nonAggressionClause
+    ? world.wars.find((war) => pairKey(war.a, war.b) === pairKey(treaty.parties[0], treaty.parties[1]))
+    : undefined;
+  if (nonAggressionClause && blockingWar) {
     refundEscrow(world, treaty);
     treaty.status = "violated";
     treaty.terminalReason = "material_breach";
-    return;
+    nonAggressionClause.status = "violated";
+    const violatorId = blockingWar.attacker;
+    const injuredPartyId = treaty.parties.find((id) => id !== violatorId) ?? treaty.parties[1];
+    addViolation(world, treaty, {
+      clauseId: nonAggressionClause.id,
+      violatorId,
+      injuredPartyId,
+      reason: "non_aggression_breach",
+      severity: 82,
+    });
+    return `${countryById(world, violatorId)?.name ?? violatorId} prevents ${treaty.title} from entering force by waging war on ${countryById(world, injuredPartyId)?.name ?? injuredPartyId}; the non-aggression commitment is recorded as breached.`;
   }
 
   treaty.status = "active";
@@ -304,6 +329,7 @@ function activateTreaty(world: WorldState, treaty: Treaty) {
       treaty.obligations.push(createObligation(treaty, clause));
     }
   }
+  return null;
 }
 
 export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyRegistrationResult {
@@ -388,19 +414,14 @@ export function resetTreatyWeeklyUsage(world: WorldState) {
   }
 }
 
-function recordViolation(world: WorldState, treaty: Treaty, obligation: TreatyObligation, reason: ObligationFailureReason) {
-  if (world.treatyViolations.some((violation) => violation.treatyId === treaty.id && violation.clauseId === obligation.clauseId && violation.reason === reason && violation.week === world.week)) return;
-  const violation: TreatyViolation = {
-    id: `violation-${treaty.id}-${world.week}-${world.treatyViolations.length + 1}`,
-    treatyId: treaty.id,
+function recordObligationViolation(world: WorldState, treaty: Treaty, obligation: TreatyObligation, reason: ObligationFailureReason) {
+  addViolation(world, treaty, {
     clauseId: obligation.clauseId,
     violatorId: obligation.payerId,
     injuredPartyId: obligation.payeeId,
-    week: world.week,
     reason,
     severity: Math.min(100, 35 + obligation.missedPayments * 18),
-  };
-  world.treatyViolations.push(violation);
+  });
 }
 
 function processObligation(world: WorldState, treaty: Treaty, obligation: TreatyObligation) {
@@ -412,7 +433,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
     obligation.failureReason = "counterparty_missing";
     treaty.status = "violated";
     treaty.terminalReason = "counterparty_missing";
-    recordViolation(world, treaty, obligation, "counterparty_missing");
+    recordObligationViolation(world, treaty, obligation, "counterparty_missing");
     return;
   }
 
@@ -435,7 +456,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
       treaty.terminalReason = "material_breach";
       const clause = treaty.clauses.find((candidate) => candidate.id === obligation.clauseId);
       if (clause) clause.status = "violated";
-      recordViolation(world, treaty, obligation, "insufficient_treasury");
+      recordObligationViolation(world, treaty, obligation, "insufficient_treasury");
     }
   } else {
     obligation.failureReason = null;
@@ -476,8 +497,9 @@ export function processTreaties(world: WorldState) {
   const messages: string[] = [];
   for (const treaty of world.treaties) {
     if (treaty.status === "pending" && world.week >= treaty.effectiveWeek) {
-      activateTreaty(world, treaty);
-      if (treaty.activatedWeek === world.week) messages.push(`${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`);
+      const activationFailure = activateTreaty(world, treaty);
+      if (activationFailure) messages.push(activationFailure);
+      else if (treaty.activatedWeek === world.week) messages.push(`${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`);
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.withdrawalEffectiveWeek !== null && world.week >= treaty.withdrawalEffectiveWeek) {

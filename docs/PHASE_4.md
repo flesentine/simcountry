@@ -119,7 +119,7 @@ The current motive vocabulary is:
 - `reparations`
 
 Autonomous generation currently uses the first three because the deterministic engine has enough state to create meaningful offers for them:
-- reciprocal trade preferences when trade access is valuable
+- resource-complementary trade preferences when one side can meaningfully supply what the other lacks; reciprocal concessions are added only when both directions have a real comparative supply advantage
 - non-aggression accords when security incentives justify them
 - development credit when one state has financing need and a trusted counterpart has fiscal capacity
 

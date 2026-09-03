@@ -183,18 +183,24 @@ function runTrade(world: WorldState) {
     const amount = Math.min(desired, available, routeCapacity, treatyPolicy.quotaRemaining);
     const infrastructureEfficiency = 0.72 + route.level * 0.11 + route.condition / 500;
     const logistics = 1 + route.distance / (90 * infrastructureEfficiency) + (route.mode === "sea" ? 0.045 : 0.025);
-    const treatyPriceMultiplier = Math.max(0.2, 1 + treatyPolicy.tariffPct / 100 - treatyPolicy.discountPct / 100);
-    const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics * treatyPriceMultiplier;
-    if (amount < 2 || price > buyer.treasury) continue;
+    const baseTradePrice = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics;
+    const externalPrice = baseTradePrice * Math.max(0.2, 1 - treatyPolicy.discountPct / 100);
+    const tariffRevenue = externalPrice * treatyPolicy.tariffPct / 100;
+    const grossAffordabilityPrice = externalPrice + tariffRevenue;
+    if (amount < 2 || grossAffordabilityPrice > buyer.treasury) continue;
 
-    buyer.treasury -= price;
-    seller.treasury += price;
+    // The exporter receives the underlying external trade value. Import tariffs
+    // are domestic revenue collected by the importing state, so they affect
+    // affordability/partner choice without incorrectly enriching the exporter.
+    buyer.treasury -= grossAffordabilityPrice;
+    buyer.treasury += tariffRevenue;
+    seller.treasury += externalPrice;
     buyer.resources[intent.resource] += amount;
     seller.resources[intent.resource] -= amount;
     route.usedThisWeek += amount;
     recordTreatyTrade(world, buyer.id, seller.id, intent.resource, amount);
-    relation.tradeVolume += price;
-    sellerRelation.tradeVolume += price;
+    relation.tradeVolume += externalPrice;
+    sellerRelation.tradeVolume += externalPrice;
     relation.trust = clamp(relation.trust + 0.18);
     sellerRelation.trust = clamp(sellerRelation.trust + 0.18);
     relation.tension = clamp(relation.tension - 0.06);
@@ -412,7 +418,8 @@ export function tickWeek(world: WorldState): WorldState {
     const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
     const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
     const infraNote = highestInfra ? ` Top infrastructure is level ${highestInfra.level} ${highestInfra.infrastructure}.` : "";
-    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${activeTreaties} treaty${activeTreaties === 1 ? " is" : "ies are"} active.`);
+    const treatyNote = `${activeTreaties} ${activeTreaties === 1 ? "treaty is" : "treaties are"} active.`;
+    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${treatyNote}`);
   }
   return world;
 }

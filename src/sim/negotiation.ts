@@ -19,6 +19,7 @@ export type NegotiationRng = { next(): number };
 
 const RESPONSE_DELAY_WEEKS = 1;
 const PROPOSAL_LIFETIME_WEEKS = 12;
+const NEGOTIATED_EFFECTIVE_DELAY_WEEKS = 8;
 const NEGOTIATION_COOLDOWN_WEEKS = 39;
 const ACCEPTED_COOLDOWN_WEEKS = 78;
 const MAX_ROUNDS = 3;
@@ -258,13 +259,14 @@ function mostNeededResource(country: Country) {
 }
 
 function draftForMotive(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive): TreatyDraft | null {
+  const effectiveWeek = world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS;
   if (motive === "trade_access") {
     const resource = mostNeededResource(proposer);
     const discount = round(clamp(4 + proposer.government.agenda.tradeOpenness / 20, 5, 9));
     return {
       title: `${proposer.name}–${recipient.name} Trade Compact`,
       parties: [proposer.id, recipient.id],
-      effectiveWeek: world.week,
+      effectiveWeek,
       expiryWeek: world.week + 156,
       withdrawalNoticeWeeks: 13,
       clauses: [
@@ -278,7 +280,7 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
     return {
       title: `${proposer.name}–${recipient.name} Non-Aggression Accord`,
       parties: [proposer.id, recipient.id],
-      effectiveWeek: world.week,
+      effectiveWeek,
       expiryWeek: world.week + 208,
       withdrawalNoticeWeeks: 26,
       clauses: [{ kind: "non_aggression" }],
@@ -293,7 +295,7 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
     return {
       title: `${recipient.name} Development Credit for ${proposer.name}`,
       parties: [proposer.id, recipient.id],
-      effectiveWeek: world.week,
+      effectiveWeek,
       expiryWeek: world.week + 130,
       withdrawalNoticeWeeks: 13,
       clauses: [{
@@ -351,7 +353,7 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
   const draft: TreatyDraft = {
     title: proposal.draft.title,
     parties: [...proposal.draft.parties] as [string, string],
-    effectiveWeek: world.week,
+    effectiveWeek: Math.max(world.week + 1, proposal.draft.effectiveWeek ?? world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS),
     expiryWeek: proposal.draft.expiryWeek,
     withdrawalNoticeWeeks: proposal.draft.withdrawalNoticeWeeks,
     clauses: proposal.draft.clauses.map((clause): TreatyClauseDraft => {
@@ -390,7 +392,7 @@ function createProposal(
   roundNumber: number,
   responseToProposalId: string | null,
 ) {
-  const proposalId = `proposal-${world.nextProposalId++}`;
+  const proposalId = `proposal-${world.nextProposalId}`;
   const proposal: Proposal = {
     id: proposalId,
     negotiationId: negotiation.id,
@@ -409,6 +411,7 @@ function createProposal(
   const proposerEvaluation = evaluateTreatyProposal(world, proposer, draft, proposalId, roundNumber);
   proposal.evaluations.push(proposerEvaluation);
   if (proposerEvaluation.decision === "reject") return null;
+  world.nextProposalId += 1;
   world.proposals.push(proposal);
   negotiation.currentProposalId = proposal.id;
   negotiation.proposalIds.push(proposal.id);
@@ -419,7 +422,7 @@ function createProposal(
 function startNegotiation(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive, rawDraft: TreatyDraft) {
   const draft = defensiveDraft(world, rawDraft);
   if (!draft) return null;
-  const id = `negotiation-${world.nextNegotiationId++}`;
+  const id = `negotiation-${world.nextNegotiationId}`;
   const negotiation: Negotiation = {
     id,
     parties: [proposer.id, recipient.id],
@@ -436,10 +439,8 @@ function startNegotiation(world: WorldState, proposer: Country, recipient: Count
     terminalReason: null,
   };
   const proposal = createProposal(world, negotiation, proposer, recipient, motive, draft, 1, null);
-  if (!proposal) {
-    world.nextNegotiationId -= 1;
-    return null;
-  }
+  if (!proposal) return null;
+  world.nextNegotiationId += 1;
   world.negotiations.push(negotiation);
   return { negotiation, proposal };
 }

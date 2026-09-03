@@ -23,7 +23,7 @@ function finiteNumber(value: unknown): value is number {
 }
 
 function integer(value: unknown): value is number {
-  return finiteNumber(value) && Number.isInteger(value);
+  return finiteNumber(value) && Number.isSafeInteger(value);
 }
 
 function resource(value: unknown, optional = false): Resource | null | undefined | "invalid" {
@@ -43,7 +43,7 @@ function parseClause(value: unknown, index: number, errors: string[]): TreatyCla
   }
 
   const prefix = `clause ${index + 1}`;
-  const stringField = (key: string) => typeof value[key] === "string" && (value[key] as string).length > 0;
+  const stringField = (key: string) => typeof value[key] === "string" && (value[key] as string).length > 0 && (value[key] as string).length <= 80;
   const numberField = (key: string) => finiteNumber(value[key]);
   const integerField = (key: string) => integer(value[key]);
   const optionalResource = () => resource(value.resource, true);

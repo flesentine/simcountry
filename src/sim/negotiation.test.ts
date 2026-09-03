@@ -181,41 +181,42 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(world.treaties).toHaveLength(0);
   });
 
-  test("a marginal creditor cabinet issues a real counterproposal", () => {
+  test("a revisionist cabinet issues a self-authorized shorter security counter", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;
-    const debtor = world.countries.find((country) => country.id === route.a)!;
-    const creditor = world.countries.find((country) => country.id === route.b)!;
+    const proposer = world.countries.find((country) => country.id === route.a)!;
+    const recipient = world.countries.find((country) => country.id === route.b)!;
     world.week = 13;
-    creditor.relations[debtor.id]!.trust = 80;
-    creditor.government.dissent = 100;
-    creditor.government.cohesion = 0;
-    creditor.government.legitimacy = 45;
-    creditor.government.leader.traits.nationalism = 45;
-    creditor.government.leader.traits.pragmatism = 50;
+
+    recipient.policy.expansionism = 80;
+    recipient.government.dissent = 8;
+    recipient.government.cohesion = 0;
+    recipient.government.legitimacy = 50;
+    recipient.relations[proposer.id]!.trust = 40;
+    recipient.relations[proposer.id]!.tension = 40;
+    recipient.government.leader.authority = 50;
+    recipient.government.leader.traits.pragmatism = 50;
+    recipient.government.leader.traits.nationalism = 50;
+    recipient.government.leader.position = { economy: 50, trade: 50, diplomacy: 50, defense: 50, stability: 50 };
+    for (const ministry of Object.values(recipient.government.ministries)) {
+      ministry.competence = 50;
+      ministry.influence = 50;
+      ministry.position = { economy: 50, trade: 50, diplomacy: 50, defense: 50, stability: 50 };
+    }
 
     const draft: TreatyDraft = {
-      title: "Marginal credit package",
-      parties: [debtor.id, creditor.id],
+      title: "Long security pact",
+      parties: [proposer.id, recipient.id],
       effectiveWeek: 21,
-      expiryWeek: 150,
-      withdrawalNoticeWeeks: 13,
-      clauses: [{
-        kind: "loan",
-        creditorId: creditor.id,
-        debtorId: debtor.id,
-        principal: 3,
-        installment: 0.375,
-        intervalWeeks: 13,
-        firstPaymentDelayWeeks: 13,
-      }],
+      expiryWeek: 221,
+      withdrawalNoticeWeeks: 26,
+      clauses: [{ kind: "non_aggression" }],
     };
-
     const negotiation: Negotiation = {
       id: "negotiation-1",
-      parties: [debtor.id, creditor.id],
-      initiatorId: debtor.id,
-      motive: "financing",
+      parties: [proposer.id, recipient.id],
+      initiatorId: proposer.id,
+      motive: "security",
       status: "open",
       startedWeek: 13,
       lastActionWeek: 13,
@@ -230,9 +231,9 @@ describe("Phase 4.1 negotiation and government authorization", () => {
       id: "proposal-1",
       negotiationId: negotiation.id,
       round: 1,
-      proposerId: debtor.id,
-      recipientId: creditor.id,
-      motive: "financing",
+      proposerId: proposer.id,
+      recipientId: recipient.id,
+      motive: "security",
       createdWeek: 13,
       expiresWeek: 25,
       responseToProposalId: null,
@@ -248,13 +249,17 @@ describe("Phase 4.1 negotiation and government authorization", () => {
 
     world.week = 14;
     processNegotiations(world, always(1));
-    const evaluation = proposal.evaluations.at(-1)!;
-    expect(evaluation.decision).toBe("counter");
+
+    const incomingEvaluation = proposal.evaluations.at(-1)!;
+    expect(incomingEvaluation.decision).toBe("counter");
     expect(proposal.status).toBe("countered");
     expect(world.proposals).toHaveLength(2);
-    expect(world.proposals[1]!.round).toBe(2);
-    expect(world.proposals[1]!.proposerId).toBe(creditor.id);
-    expect(world.proposals[1]!.responseToProposalId).toBe(proposal.id);
-    expect(world.proposals[1]!.evaluations[0]?.decision).toBe("approve");
+    const counter = world.proposals[1]!;
+    expect(counter.round).toBe(2);
+    expect(counter.proposerId).toBe(recipient.id);
+    expect(counter.responseToProposalId).toBe(proposal.id);
+    expect(counter.evaluations[0]?.decision).toBe("approve");
+    expect(counter.draft.expiryWeek).toBeLessThan(draft.expiryWeek!);
   });
+
 });

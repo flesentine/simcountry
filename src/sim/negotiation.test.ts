@@ -255,5 +255,6 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(world.proposals[1]!.round).toBe(2);
     expect(world.proposals[1]!.proposerId).toBe(creditor.id);
     expect(world.proposals[1]!.responseToProposalId).toBe(proposal.id);
+    expect(world.proposals[1]!.evaluations[0]?.decision).toBe("approve");
   });
 });

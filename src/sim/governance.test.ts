@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { getTradeIntent, warAppetite } from "../ai/policy";
+import { getSellerReserveWeeks, getTradeIntent, warAppetite } from "../ai/policy";
 import { runGovernments } from "./governance";
 import { createInitialWorld, tickWeek } from "./world";
 
@@ -72,6 +72,30 @@ describe("SimCountry phase 3 governments and delegation", () => {
     expect(aligned.government.cohesion).toBeLessThanOrEqual(92);
   });
 
+  test("unachieved objectives refresh on the annual cabinet boundary", () => {
+    const world = createInitialWorld(1978);
+    const country = world.countries[0]!;
+    for (const relation of Object.values(country.relations)) relation.tradeVolume = 0;
+    for (const objective of country.government.objectives) {
+      objective.kind = "trade";
+      objective.assignedTo = "trade";
+      objective.status = "active";
+      objective.progress = 0;
+    }
+    const initialIds = country.government.objectives.map((objective) => objective.id);
+
+    for (const week of [13, 26, 39]) {
+      world.week = week;
+      runGovernments(world, fixedRng);
+      expect(country.government.objectives.map((objective) => objective.id)).toEqual(initialIds);
+    }
+
+    world.week = 52;
+    runGovernments(world, fixedRng);
+    expect(country.government.objectives.map((objective) => objective.id)).not.toEqual(initialIds);
+    expect(country.government.objectives.every((objective) => objective.id.includes("-52-"))).toBe(true);
+  });
+
   test("government fiscal choices change authoritative weekly cash flow", () => {
     const highTax = createInitialWorld(1978);
     const lowTax = createInitialWorld(1978);
@@ -109,6 +133,16 @@ describe("SimCountry phase 3 governments and delegation", () => {
     expect(openIntent!.urgency).toBeGreaterThanOrEqual(closedIntent!.urgency);
     expect(open.resources.food).toBe(10);
     expect(closed.resources.food).toBe(10);
+  });
+
+  test("seller reserve policy releases more inventory under an open trade agenda", () => {
+    const world = createInitialWorld(1978);
+    const seller = world.countries[0]!;
+    seller.government.agenda.tradeOpenness = 0;
+    const closedReserve = getSellerReserveWeeks(seller);
+    seller.government.agenda.tradeOpenness = 100;
+    const openReserve = getSellerReserveWeeks(seller);
+    expect(openReserve).toBeLessThan(closedReserve);
   });
 
   test("war appetite requires cabinet support rather than leader policy alone", () => {

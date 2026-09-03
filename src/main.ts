@@ -153,7 +153,7 @@ function renderTreaties(selected: Country) {
       <span>Open obligations <b>${summary.obligations}</b></span>
     </div>
     <div class="relations treaty-list">
-      ${treaties.length ? treaties.slice().reverse().map((treaty) => {
+      ${treaties.length ? treaties.slice().reverse().slice(0, 8).map((treaty) => {
         const counterpartId = treaty.parties.find((id) => id !== selected.id) ?? selected.id;
         const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
         const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
@@ -182,7 +182,7 @@ function renderNegotiations(selected: Country) {
         const direction = current ? `${countryById(current.proposerId)?.name ?? current.proposerId} → ${countryById(current.recipientId)?.name ?? current.recipientId}` : "closed";
         const score = selectedEvaluation ? ` · cabinet ${selectedEvaluation.decision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
         const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
-        return `<div><span>${systemLabel(negotiationMotiveLabel(negotiation.motive))} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
+        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
       }).join("") : "<p>No diplomatic talks yet.</p>"}
     </div>`;
 }

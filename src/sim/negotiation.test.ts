@@ -80,6 +80,45 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(unsafeInteger.ok).toBe(false);
   });
 
+  test("autonomous trade talks require real resource complementarity", () => {
+    const world = createInitialWorld(1978);
+    makeDiplomatic(world);
+    const resources = ["food", "energy", "metals", "goods"] as const;
+    for (const [index, country] of world.countries.entries()) {
+      country.policy.commerce = 100;
+      country.policy.diplomacy = 10;
+      country.government.agenda.tradeOpenness = 100;
+      country.government.agenda.diplomaticEngagement = 80;
+      for (const relation of Object.values(country.relations)) {
+        relation.trust = 70;
+        relation.tension = 5;
+      }
+      for (const [resourceIndex, resource] of resources.entries()) {
+        country.resources[resource] = country.needs[resource] * (resourceIndex === index % resources.length ? 30 : 2);
+      }
+    }
+    world.week = 13;
+    processNegotiations(world, always(0));
+
+    const tradeProposal = world.proposals.find((proposal) => proposal.motive === "trade_access");
+    expect(tradeProposal).toBeDefined();
+    const preferenceClauses = tradeProposal!.draft.clauses.filter((clause) => clause.kind === "preferential_trade");
+    expect(preferenceClauses.length).toBeGreaterThan(0);
+    for (const clause of preferenceClauses) {
+      if (clause.kind !== "preferential_trade" || !clause.resource) continue;
+      const buyer = world.countries.find((country) => country.id === clause.grantorId)!;
+      const seller = world.countries.find((country) => country.id === clause.beneficiaryId)!;
+      const buyerWeeks = buyer.resources[clause.resource] / Math.max(0.1, buyer.needs[clause.resource]);
+      const sellerWeeks = seller.resources[clause.resource] / Math.max(0.1, seller.needs[clause.resource]);
+      expect(sellerWeeks - buyerWeeks).toBeGreaterThanOrEqual(1.5);
+      expect(sellerWeeks).toBeGreaterThanOrEqual(4);
+    }
+    if (preferenceClauses.length > 1) {
+      const resourceSet = new Set(preferenceClauses.map((clause) => clause.kind === "preferential_trade" ? clause.resource : null));
+      expect(resourceSet.size).toBe(preferenceClauses.length);
+    }
+  });
+
   test("cabinet evaluation exposes leader and every ministry utility", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;

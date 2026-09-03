@@ -403,7 +403,7 @@ export function recordTreatyTrade(world: WorldState, buyerId: string, sellerId: 
   if (amount <= 0) return;
   for (const clause of activeTreatyClauses(world)) {
     if (clause.kind === "quota" && clause.importerId === buyerId && clause.exporterId === sellerId && clause.resource === resource) {
-      clause.usedThisWeek = round(clause.usedThisWeek + amount);
+      clause.usedThisWeek = Math.min(clause.maxUnitsPerWeek, round(clause.usedThisWeek + amount));
     }
   }
 }
@@ -431,8 +431,10 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
   if (!payer || !payee) {
     obligation.status = "suspended";
     obligation.failureReason = "counterparty_missing";
-    treaty.status = "violated";
-    treaty.terminalReason = "counterparty_missing";
+    if (treaty.status === "active") {
+      treaty.status = "violated";
+      treaty.terminalReason = "counterparty_missing";
+    }
     recordObligationViolation(world, treaty, obligation, "counterparty_missing");
     return;
   }
@@ -452,8 +454,10 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
     obligation.failureReason = "insufficient_treasury";
     if (obligation.missedPayments >= 3) {
       obligation.status = "defaulted";
-      treaty.status = "violated";
-      treaty.terminalReason = "material_breach";
+      if (treaty.status === "active") {
+        treaty.status = "violated";
+        treaty.terminalReason = "material_breach";
+      }
       const clause = treaty.clauses.find((candidate) => candidate.id === obligation.clauseId);
       if (clause) clause.status = "violated";
       recordObligationViolation(world, treaty, obligation, "insufficient_treasury");

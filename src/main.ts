@@ -11,6 +11,7 @@ let running = false;
 let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
+let speedControlActive = false;
 
 const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -268,8 +269,19 @@ function render() {
     syncTimer();
     render();
   });
-  app.querySelector<HTMLSelectElement>("#speedSelect")?.addEventListener("change", (event) => {
+  const speedSelect = app.querySelector<HTMLSelectElement>("#speedSelect");
+  speedSelect?.addEventListener("pointerdown", () => {
+    speedControlActive = true;
+  });
+  speedSelect?.addEventListener("focus", () => {
+    speedControlActive = true;
+  });
+  speedSelect?.addEventListener("blur", () => {
+    speedControlActive = false;
+  });
+  speedSelect?.addEventListener("change", (event) => {
     speed = Number((event.target as HTMLSelectElement).value);
+    speedControlActive = false;
     syncTimer();
   });
   app.querySelectorAll<HTMLElement>("[data-country]").forEach((element) => {
@@ -285,6 +297,7 @@ function syncTimer() {
   timer = null;
   if (!running) return;
   timer = window.setInterval(() => {
+    if (speedControlActive) return;
     const steps = speed === 1 ? 1 : Math.max(1, Math.floor(speed / 5));
     for (let i = 0; i < steps; i++) tickWeek(world);
     render();

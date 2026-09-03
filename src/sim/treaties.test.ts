@@ -148,6 +148,22 @@ describe("SimCountry phase 4.0 treaty engine", () => {
     expect(getTreatyTradePolicy(sanctionWorld, y.id, x.id, "goods").blocked).toBe(true);
   });
 
+  test("reciprocal directional tariffs can coexist in one treaty", () => {
+    const world = createInitialWorld(1978);
+    const [a, b] = pairWithRoute(world);
+    const result = registerTreaty(world, {
+      title: "Reciprocal tariff schedule",
+      parties: [a.id, b.id],
+      clauses: [
+        { kind: "tariff", importerId: a.id, exporterId: b.id, ratePct: 8, resource: "metals" },
+        { kind: "tariff", importerId: b.id, exporterId: a.id, ratePct: 13, resource: "metals" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(getTreatyTradePolicy(world, a.id, b.id, "metals").tariffPct).toBe(8);
+    expect(getTreatyTradePolicy(world, b.id, a.id, "metals").tariffPct).toBe(13);
+  });
+
   test("partner selection refuses sellers blocked by treaty sanctions", () => {
     const world = createInitialWorld(1978);
     const [seller, buyer] = pairWithRoute(world);
@@ -187,6 +203,52 @@ describe("SimCountry phase 4.0 treaty engine", () => {
     b.military = Math.max(3, b.militaryCapacity * 0.3);
     for (let week = 0; week < 52 * 10; week++) tickWeek(world);
     expect(world.wars.some((war) => (war.a === a.id && war.b === b.id) || (war.a === b.id && war.b === a.id))).toBe(false);
+  });
+
+  test("a war begun before a future non-aggression pact activates is recorded as a breach", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes.find((candidate) => candidate.mode === "land") ?? world.geography.routes[0]!;
+    const a = world.countries.find((country) => country.id === route.a)!;
+    const b = world.countries.find((country) => country.id === route.b)!;
+    const result = registerTreaty(world, {
+      title: "Future peace compact",
+      parties: [a.id, b.id],
+      effectiveWeek: 4,
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    world.wars.push({
+      id: `${a.id}-${b.id}-preactivation-war`,
+      a: a.id,
+      b: b.id,
+      attacker: a.id,
+      startWeek: 2,
+      casualtiesA: 0,
+      casualtiesB: 0,
+      frontCellId: world.geography.cells.find((cell) => cell.ownerId === b.id)?.id ?? null,
+      supplyA: 70,
+      supplyB: 70,
+      momentum: 0,
+      capturedA: 0,
+      capturedB: 0,
+      lastCaptureWeek: 2,
+      blockadeRouteIds: [],
+    });
+    world.week = 4;
+    const messages = processTreaties(world);
+
+    expect(result.treaty.status).toBe("violated");
+    expect(result.treaty.terminalReason).toBe("material_breach");
+    expect(result.treaty.clauses[0]!.status).toBe("violated");
+    expect(world.treatyViolations).toContainEqual(expect.objectContaining({
+      treatyId: result.treaty.id,
+      violatorId: a.id,
+      injuredPartyId: b.id,
+      reason: "non_aggression_breach",
+    }));
+    expect(messages.some((message) => message.includes("recorded as breached"))).toBe(true);
   });
 
   test("lawful withdrawal observes notice and then removes treaty effects", () => {
@@ -251,6 +313,35 @@ describe("SimCountry phase 4.0 treaty engine", () => {
     expect(result.treaty.status).toBe("violated");
     expect(result.treaty.terminalReason).toBe("material_breach");
     expect(world.treatyViolations.some((violation) => violation.treatyId === result.treaty.id && violation.reason === "insufficient_treasury")).toBe(true);
+  });
+
+  test("a violated treaty no longer reserves its policy scope", () => {
+    const world = createInitialWorld(1978);
+    const [payer, payee] = pairWithRoute(world);
+    const original = registerTreaty(world, {
+      title: "Tariff and reparations settlement",
+      parties: [payer.id, payee.id],
+      clauses: [
+        { kind: "tariff", importerId: payee.id, exporterId: payer.id, ratePct: 17, resource: "goods" },
+        { kind: "reparations", payerId: payer.id, payeeId: payee.id, totalAmount: 12, installment: 4, intervalWeeks: 1, firstPaymentDelayWeeks: 1 },
+      ],
+    });
+    expect(original.ok).toBe(true);
+    if (!original.ok) return;
+    payer.treasury = -payer.population * 5;
+    for (const week of [1, 2, 3]) {
+      world.week = week;
+      processTreaties(world);
+    }
+    expect(original.treaty.status).toBe("violated");
+
+    const replacement = registerTreaty(world, {
+      title: "Replacement tariff schedule",
+      parties: [payer.id, payee.id],
+      clauses: [{ kind: "tariff", importerId: payee.id, exporterId: payer.id, ratePct: 9, resource: "goods" }],
+    });
+    expect(replacement.ok).toBe(true);
+    expect(getTreatyTradePolicy(world, payee.id, payer.id, "goods").tariffPct).toBe(9);
   });
 
   test("financial schedules cannot be designed to outlive treaty expiry", () => {

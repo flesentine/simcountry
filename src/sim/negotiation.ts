@@ -538,7 +538,10 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
   }
 
   let startedThisCycle = 0;
-  for (const proposer of world.countries) {
+  const cycleIndex = Math.floor(world.week / INITIATION_INTERVAL_WEEKS);
+  const proposerOffset = cycleIndex % world.countries.length;
+  const proposerOrder = [...world.countries.slice(proposerOffset), ...world.countries.slice(0, proposerOffset)];
+  for (const proposer of proposerOrder) {
     if (startedThisCycle >= MAX_NEW_NEGOTIATIONS_PER_CYCLE) break;
     if ((openCounts.get(proposer.id) ?? 0) >= diplomaticBandwidth(proposer)) continue;
     const candidates = world.countries

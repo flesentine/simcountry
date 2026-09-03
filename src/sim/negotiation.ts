@@ -118,10 +118,14 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         add("economy", -3);
       }
     } else if (clause.kind === "non_aggression") {
-      add("diplomacy", 4 + tension * 0.07 + trust * 0.035);
-      add("stability", 3 + tension * 0.05);
-      // A non-aggression commitment buys security but constrains revisionist states.
-      add("defense", 8 + tension * 0.10 - country.policy.expansionism * 0.22);
+      const termWeeks = draft.expiryWeek === null || draft.expiryWeek === undefined
+        ? 260
+        : Math.max(1, draft.expiryWeek - (draft.effectiveWeek ?? world.week));
+      const termYears = clamp(termWeeks / 52, 0.25, 5);
+      add("diplomacy", 4 + tension * 0.07 + trust * 0.035 + Math.min(3, termYears * 0.6));
+      add("stability", 3 + tension * 0.05 + Math.min(2, termYears * 0.35));
+      // Longer commitments buy more predictability but constrain revisionist states more.
+      add("defense", 10 + tension * 0.10 - country.policy.expansionism * (0.08 + termYears * 0.04));
     } else if (clause.kind === "sanction") {
       if (clause.imposerId === country.id) {
         add("defense", 4 + tension * 0.08);
@@ -369,17 +373,22 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
     withdrawalNoticeWeeks: proposal.draft.withdrawalNoticeWeeks,
     clauses: proposal.draft.clauses.map((clause): TreatyClauseDraft => {
       if (clause.kind === "preferential_trade") {
-        return { ...clause, discountPct: round(Math.max(2, clause.discountPct * 0.82)) };
+        // Reduce the price concession borne by the countering exporter without
+        // automatically taking away the import preference it was offered.
+        if (clause.beneficiaryId === counteringCountry.id) {
+          return { ...clause, discountPct: round(Math.max(2, clause.discountPct * 0.65)) };
+        }
+        return { ...clause };
       }
       if (clause.kind === "loan" && clause.creditorId === counteringCountry.id) {
-        const principal = round(Math.max(2, clause.principal * 0.75), 2);
+        const principal = round(Math.max(2, clause.principal * 0.60), 2);
         return { ...clause, principal, installment: round(principal / 8, 2) };
       }
       return { ...clause };
     }),
   };
   if (proposal.motive === "security" && draft.expiryWeek !== null && draft.expiryWeek !== undefined) {
-    draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 156);
+    draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 104);
   }
   return defensiveDraft(world, draft);
 }
@@ -429,7 +438,9 @@ function createProposal(
   };
   const proposerEvaluation = evaluateTreatyProposal(world, proposer, draft, proposalId, roundNumber);
   proposal.evaluations.push(proposerEvaluation);
-  if (proposerEvaluation.decision === "reject") return null;
+  // A government may only put forward a package it is itself prepared to sign.
+  // In particular, a counteroffer cannot remain merely "counter" by its own cabinet.
+  if (proposerEvaluation.decision !== "approve") return null;
   world.nextProposalId += 1;
   world.proposals.push(proposal);
   negotiation.currentProposalId = proposal.id;

@@ -13,6 +13,10 @@ export interface TradePartner {
   route: TradeRoute;
 }
 
+export function getSellerReserveWeeks(seller: Country) {
+  return 11.5 - seller.policy.commerce / 30 - seller.government.agenda.tradeOpenness / 80;
+}
+
 export function getTradeIntent(country: Country): TradeIntent | null {
   let best: TradeIntent | null = null;
   const openness = country.government.agenda.tradeOpenness;
@@ -40,7 +44,7 @@ export function chooseTradePartner(world: WorldState, buyer: Country, resource: 
       const route = getBestTradeRoute(world, buyer.id, seller.id);
       if (!route) return null;
       const relation = buyer.relations[seller.id];
-      const sellerReserveWeeks = 11.5 - seller.policy.commerce / 30 - seller.government.agenda.tradeOpenness / 80;
+      const sellerReserveWeeks = getSellerReserveWeeks(seller);
       const surplus = seller.resources[resource] - seller.needs[resource] * sellerReserveWeeks;
       const relationship = relation ? relation.trust - relation.tension * 0.6 : 0;
       const surplusWeight = 0.68 + buyer.policy.commerce / 350 + tradeAgenda / 500;

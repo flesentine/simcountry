@@ -1,6 +1,7 @@
 import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
+import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
 const app = document.querySelector<HTMLDivElement>("#app") ?? (() => { throw new Error("Missing #app"); })();
@@ -10,6 +11,7 @@ let running = false;
 let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
+let speedControlActive = false;
 
 const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -21,7 +23,7 @@ const cityById = (id: string) => world.geography.cities.find((city) => city.id =
 const systemLabel = (system: string) => system.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
 
 function eventIcon(event: WorldEvent) {
-  return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", world: "◎" } as const)[event.kind];
+  return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", diplomacy: "◇", world: "◎" } as const)[event.kind];
 }
 
 function renderMap(selected: Country) {
@@ -138,9 +140,30 @@ function renderGovernment(selected: Country) {
     </div>`;
 }
 
+function renderTreaties(selected: Country) {
+  const treaties = world.treaties.filter((treaty) => treaty.parties.includes(selected.id));
+  const summary = treatySummaryFor(selected, world);
+  return `
+    <h3>Treaty commitments</h3>
+    <div class="profile-grid">
+      <span>Total <b>${summary.total}</b></span>
+      <span>Active <b>${summary.active}</b></span>
+      <span>Pending <b>${summary.pending}</b></span>
+      <span>Open obligations <b>${summary.obligations}</b></span>
+    </div>
+    <div class="relations treaty-list">
+      ${treaties.length ? treaties.slice().reverse().map((treaty) => {
+        const counterpartId = treaty.parties.find((id) => id !== selected.id) ?? selected.id;
+        const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
+        const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
+        const timing = treaty.expiryWeek === null ? "open-ended" : `expires ${weekLabel(treaty.expiryWeek)}`;
+        return `<div><span>${treaty.title}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
+      }).join("") : "<p>No treaty commitments yet.</p>"}
+    </div>`;
+}
+
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
-  const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
   const upgraded = world.geography.routes.filter((route) => route.level > 1).length;
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
   app.innerHTML = `
@@ -169,7 +192,7 @@ function render() {
       <section class="summary" aria-label="World summary">
         <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.population, 0))}M</strong><span>population</span></div>
         <div><strong>${world.wars.length}</strong><span>active wars</span></div>
-        <div><strong>${upgraded}</strong><span>upgraded corridors</span></div>
+        <div><strong>${world.treaties.filter((treaty) => treaty.status === "active").length}</strong><span>active treaties</span></div>
         <div><strong>${fmt(avgLegitimacy)}%</strong><span>avg legitimacy</span></div>
       </section>
 
@@ -206,6 +229,7 @@ function render() {
             <span>Stability <b>${fmt(selected.stability)}%</b></span>
           </div>
           ${renderGovernment(selected)}
+          ${renderTreaties(selected)}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
@@ -245,8 +269,19 @@ function render() {
     syncTimer();
     render();
   });
-  app.querySelector<HTMLSelectElement>("#speedSelect")?.addEventListener("change", (event) => {
+  const speedSelect = app.querySelector<HTMLSelectElement>("#speedSelect");
+  speedSelect?.addEventListener("pointerdown", () => {
+    speedControlActive = true;
+  });
+  speedSelect?.addEventListener("focus", () => {
+    speedControlActive = true;
+  });
+  speedSelect?.addEventListener("blur", () => {
+    speedControlActive = false;
+  });
+  speedSelect?.addEventListener("change", (event) => {
     speed = Number((event.target as HTMLSelectElement).value);
+    speedControlActive = false;
     syncTimer();
   });
   app.querySelectorAll<HTMLElement>("[data-country]").forEach((element) => {
@@ -262,6 +297,7 @@ function syncTimer() {
   timer = null;
   if (!running) return;
   timer = window.setInterval(() => {
+    if (speedControlActive) return;
     const steps = speed === 1 ? 1 : Math.max(1, Math.floor(speed / 5));
     for (let i = 0; i < steps; i++) tickWeek(world);
     render();

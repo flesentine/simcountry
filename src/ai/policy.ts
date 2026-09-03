@@ -1,6 +1,7 @@
 import type { Country, Resource, TradeRoute, WorldState } from "../model/types";
 import { RESOURCE_KEYS } from "../model/types";
 import { getBestTradeRoute, routeRemainingCapacity } from "../sim/geography";
+import { getTreatyTradePolicy } from "../sim/treaties";
 
 export interface TradeIntent {
   buyerId: string;
@@ -43,6 +44,8 @@ export function chooseTradePartner(world: WorldState, buyer: Country, resource: 
     .map((seller) => {
       const route = getBestTradeRoute(world, buyer.id, seller.id);
       if (!route) return null;
+      const treatyPolicy = getTreatyTradePolicy(world, buyer.id, seller.id, resource);
+      if (treatyPolicy.blocked || treatyPolicy.quotaRemaining < 2) return null;
       const relation = buyer.relations[seller.id];
       const sellerReserveWeeks = getSellerReserveWeeks(seller);
       const surplus = seller.resources[resource] - seller.needs[resource] * sellerReserveWeeks;
@@ -50,8 +53,9 @@ export function chooseTradePartner(world: WorldState, buyer: Country, resource: 
       const surplusWeight = 0.68 + buyer.policy.commerce / 350 + tradeAgenda / 500;
       const relationshipWeight = 0.34 + buyer.policy.diplomacy / 230 + foreignCompetence / 600;
       const logisticsPenalty = route.distance * (route.mode === "sea" ? 0.7 : 0.95);
-      const capacityBonus = Math.min(16, routeRemainingCapacity(route)) * 0.4;
-      const score = surplus * surplusWeight + relationship * relationshipWeight + capacityBonus - logisticsPenalty;
+      const capacityBonus = Math.min(16, routeRemainingCapacity(route), treatyPolicy.quotaRemaining) * 0.4;
+      const treatyPriceSignal = treatyPolicy.discountPct * 0.12 - treatyPolicy.tariffPct * 0.10;
+      const score = surplus * surplusWeight + relationship * relationshipWeight + capacityBonus + treatyPriceSignal - logisticsPenalty;
       return { seller, route, surplus, score };
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -71,13 +75,7 @@ export function warAppetite(attacker: Country, defender: Country): number {
   const grievance = Math.max(0, relation.tension - relation.trust * 0.35) / 100;
   const confidence = Math.max(0, Math.min(1.5, powerRatio - 0.7));
   const readinessFactor = 0.35 + attacker.readiness / 100 * 0.65;
-  // Cabinet support modulates the old baseline instead of replacing it. Even a
-  // reluctant cabinet can be dragged toward war by extreme grievance/power,
-  // while a hawkish cabinet materially raises the probability.
   const cabinetSupport = 0.30 + government.agenda.defensePosture / 100 * 1.10;
-  // Cohesion affects execution at the margins, while defense posture supplies
-  // the main political authorization signal. A normally functioning cabinet
-  // stays close to the pre-Phase-3 conflict cadence instead of suppressing it.
   const cohesionFactor = 0.94 + government.cohesion / 1000;
   const defenseCompetence = 0.88 + government.ministries.defense.competence / 700;
   const leaderDrive = 0.90 + (government.leader.traits.ambition + government.leader.traits.nationalism) / 1200;

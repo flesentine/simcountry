@@ -1,3 +1,4 @@
+import { isNonAggressionActive, registerTreaty } from "./treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
 
 const YEARS = 500;
@@ -16,6 +17,9 @@ let totalFloorCountries = 0;
 let worldsAtMilitaryFloor = 0;
 let upgradedRoutes = 0;
 let finalChokepoints = 0;
+let treatyFixtures = 0;
+let fulfilledTreatyObligations = 0;
+let treatyViolations = 0;
 const finalReadiness: number[] = [];
 const finalTension: number[] = [];
 const finalTreasuries: number[] = [];
@@ -27,6 +31,23 @@ const finalDissent: number[] = [];
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
   const world = createInitialWorld(seed);
+  const fixtureRoute = world.geography.routes[0]!;
+  const fixtureA = world.countries.find((country) => country.id === fixtureRoute.a)!;
+  const fixtureB = world.countries.find((country) => country.id === fixtureRoute.b)!;
+  const fixture = registerTreaty(world, {
+    title: "Stress commerce and credit compact",
+    parties: [fixtureA.id, fixtureB.id],
+    expiryWeek: 104,
+    withdrawalNoticeWeeks: 13,
+    clauses: [
+      { kind: "preferential_trade", grantorId: fixtureB.id, beneficiaryId: fixtureA.id, discountPct: 5, resource: "goods" },
+      { kind: "quota", exporterId: fixtureA.id, importerId: fixtureB.id, resource: "goods", maxUnitsPerWeek: 25 },
+      { kind: "loan", creditorId: fixtureA.id, debtorId: fixtureB.id, principal: 4, installment: 1, intervalWeeks: 13, firstPaymentDelayWeeks: 13 },
+      { kind: "non_aggression" },
+    ],
+  });
+  invariant(fixture.ok, `seed ${seed}: treaty stress fixture failed to register${fixture.ok ? "" : `: ${fixture.errors.join(", ")}`}`);
+  treatyFixtures++;
 
   for (let week = 0; week < YEARS * 52; week++) {
     tickWeek(world);
@@ -36,6 +57,7 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(!participants.has(war.a), `seed ${seed} week ${world.week}: ${war.a} entered multiple wars`);
       invariant(!participants.has(war.b), `seed ${seed} week ${world.week}: ${war.b} entered multiple wars`);
       invariant(!getActiveTruce(world, war.a, war.b), `seed ${seed} week ${world.week}: active war overlaps a truce`);
+      invariant(!isNonAggressionActive(world, war.a, war.b), `seed ${seed} week ${world.week}: active war overlaps a non-aggression treaty`);
       invariant(Number.isFinite(war.supplyA) && war.supplyA >= 8 && war.supplyA <= 100, `seed ${seed} week ${world.week}: supplyA out of bounds`);
       invariant(Number.isFinite(war.supplyB) && war.supplyB >= 8 && war.supplyB <= 100, `seed ${seed} week ${world.week}: supplyB out of bounds`);
       invariant(Number.isFinite(war.momentum) && war.momentum >= -100 && war.momentum <= 100, `seed ${seed} week ${world.week}: momentum out of bounds`);
@@ -53,6 +75,32 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       if (route.blockedBy) invariant(world.countries.some((country) => country.id === route.blockedBy), `seed ${seed} week ${world.week}: invalid blockading country`);
     }
 
+    const treatyIds = new Set<string>();
+    for (const treaty of world.treaties) {
+      invariant(!treatyIds.has(treaty.id), `seed ${seed} week ${world.week}: duplicate treaty id ${treaty.id}`);
+      treatyIds.add(treaty.id);
+      invariant(treaty.parties.length === 2 && treaty.parties[0] !== treaty.parties[1], `seed ${seed} week ${world.week}: invalid treaty parties`);
+      invariant(treaty.parties.every((id) => world.countries.some((country) => country.id === id)), `seed ${seed} week ${world.week}: treaty references missing country`);
+      invariant(treaty.status !== "pending" || world.week < treaty.effectiveWeek, `seed ${seed} week ${world.week}: treaty stuck pending after effective date`);
+      invariant(treaty.status !== "active" || treaty.expiryWeek === null || world.week < treaty.expiryWeek, `seed ${seed} week ${world.week}: active treaty passed expiry`);
+      invariant(treaty.withdrawalEffectiveWeek === null || treaty.status !== "active" || world.week < treaty.withdrawalEffectiveWeek, `seed ${seed} week ${world.week}: active treaty passed withdrawal date`);
+      const clauseIds = new Set<string>();
+      for (const clause of treaty.clauses) {
+        invariant(!clauseIds.has(clause.id), `seed ${seed} week ${world.week}: duplicate treaty clause id ${clause.id}`);
+        clauseIds.add(clause.id);
+        if (clause.kind === "quota") invariant(clause.usedThisWeek >= 0 && clause.usedThisWeek <= clause.maxUnitsPerWeek + 0.0001, `seed ${seed} week ${world.week}: treaty quota exceeded`);
+      }
+      for (const obligation of treaty.obligations) {
+        invariant(Number.isFinite(obligation.totalAmount) && obligation.totalAmount > 0, `seed ${seed} week ${world.week}: invalid treaty obligation total`);
+        invariant(obligation.paidAmount >= 0 && obligation.remainingAmount >= 0, `seed ${seed} week ${world.week}: negative treaty obligation balance`);
+        invariant(Math.abs(obligation.paidAmount + obligation.remainingAmount - obligation.totalAmount) <= 0.011, `seed ${seed} week ${world.week}: treaty obligation does not reconcile`);
+        invariant(world.countries.some((country) => country.id === obligation.payerId), `seed ${seed} week ${world.week}: obligation payer missing`);
+        invariant(world.countries.some((country) => country.id === obligation.payeeId), `seed ${seed} week ${world.week}: obligation payee missing`);
+      }
+      for (const amount of Object.values(treaty.treasuryEscrow)) invariant(Number.isFinite(amount) && amount >= -0.0001, `seed ${seed} week ${world.week}: invalid treaty escrow`);
+    }
+    invariant(world.treaties.length < 32, `seed ${seed} week ${world.week}: treaty count exploded`);
+
     for (const country of world.countries) {
       const government = country.government;
       invariant(Number.isFinite(government.legitimacy) && government.legitimacy >= 0 && government.legitimacy <= 100, `seed ${seed} week ${world.week}: ${country.name} legitimacy out of bounds`);
@@ -63,6 +111,9 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(government.objectives.every((objective) => Number.isFinite(objective.progress) && objective.progress >= 0 && objective.progress <= 100), `seed ${seed} week ${world.week}: ${country.name} objective progress invalid`);
     }
   }
+
+  fulfilledTreatyObligations += world.treaties.flatMap((treaty) => treaty.obligations).filter((obligation) => obligation.status === "fulfilled").length;
+  treatyViolations += world.treatyViolations.length;
 
   let floorCountries = 0;
   for (const country of world.countries) {
@@ -151,6 +202,9 @@ const summary = {
   totalFloorCountries,
   upgradedRoutes,
   finalChokepoints,
+  treatyFixtures,
+  fulfilledTreatyObligations,
+  treatyViolations,
   avgReadiness,
   avgTension,
   maxTreasury,
@@ -161,6 +215,8 @@ const summary = {
 };
 
 invariant(finalReadiness.length === SEEDS.length * 8, "stress gate did not evaluate all countries");
+invariant(treatyFixtures === SEEDS.length, "treaty fixture did not register in every stress world");
+invariant(fulfilledTreatyObligations >= SEEDS.length * 0.9, `only ${fulfilledTreatyObligations} treaty obligations fulfilled`);
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
 invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);
 invariant(upgradedRoutes > 0, "no infrastructure upgrades survived to the end of the stress worlds");

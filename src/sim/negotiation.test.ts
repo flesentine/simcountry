@@ -63,6 +63,21 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     });
     expect(hostile.ok).toBe(false);
     if (!hostile.ok) expect(hostile.errors.join(" ")).toMatch(/unsupported fields/);
+
+    const oversizedClauseId = parseTreatyDraftInput({
+      title: "Oversized clause id",
+      parties: [route.a, route.b],
+      clauses: [{ kind: "loan", creditorId: "x".repeat(81), debtorId: route.b, principal: 3, installment: 1, intervalWeeks: 13 }],
+    });
+    expect(oversizedClauseId.ok).toBe(false);
+
+    const unsafeInteger = parseTreatyDraftInput({
+      title: "Unsafe timing",
+      parties: [route.a, route.b],
+      effectiveWeek: Number.MAX_SAFE_INTEGER + 1,
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(unsafeInteger.ok).toBe(false);
   });
 
   test("cabinet evaluation exposes leader and every ministry utility", () => {

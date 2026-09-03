@@ -5,6 +5,7 @@ import { createGovernment, governmentModifiers, runGovernments } from "./governa
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
+import { getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, resetTreatyWeeklyUsage } from "./treaties";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -73,7 +74,19 @@ export function createInitialWorld(seed = 1978): WorldState {
 
   const geography = generateGeography(countries, seed);
   applyGeographicProduction(countries, geography);
-  const world: WorldState = { seed, week: 0, nextEventId: 1, countries, geography, wars: [], truces: [], events: [] };
+  const world: WorldState = {
+    seed,
+    week: 0,
+    nextEventId: 1,
+    nextTreatyId: 1,
+    countries,
+    geography,
+    wars: [],
+    truces: [],
+    treaties: [],
+    treatyViolations: [],
+    events: [],
+  };
   const landCells = geography.cells.filter((cell) => cell.land).length;
   const ports = geography.cities.filter((city) => city.port).length;
   const chokepoints = geography.routes.filter((route) => route.chokepoint).length;
@@ -159,16 +172,19 @@ function runTrade(world: WorldState) {
     const sellerRelation = seller.relations[buyer.id];
     if (!relation || !sellerRelation) continue;
 
+    const treatyPolicy = getTreatyTradePolicy(world, buyer.id, seller.id, intent.resource);
+    if (treatyPolicy.blocked) continue;
     const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
     const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
     const sellerReserveWeeks = getSellerReserveWeeks(seller);
     const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
     const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
     const routeCapacity = routeRemainingCapacity(route);
-    const amount = Math.min(desired, available, routeCapacity);
+    const amount = Math.min(desired, available, routeCapacity, treatyPolicy.quotaRemaining);
     const infrastructureEfficiency = 0.72 + route.level * 0.11 + route.condition / 500;
     const logistics = 1 + route.distance / (90 * infrastructureEfficiency) + (route.mode === "sea" ? 0.045 : 0.025);
-    const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics;
+    const treatyPriceMultiplier = Math.max(0.2, 1 + treatyPolicy.tariffPct / 100 - treatyPolicy.discountPct / 100);
+    const price = BASE_PRICE[intent.resource] * amount * (1 + relation.tension / 250) * logistics * treatyPriceMultiplier;
     if (amount < 2 || price > buyer.treasury) continue;
 
     buyer.treasury -= price;
@@ -176,6 +192,7 @@ function runTrade(world: WorldState) {
     buyer.resources[intent.resource] += amount;
     seller.resources[intent.resource] -= amount;
     route.usedThisWeek += amount;
+    recordTreatyTrade(world, buyer.id, seller.id, intent.resource, amount);
     relation.tradeVolume += price;
     sellerRelation.tradeVolume += price;
     relation.trust = clamp(relation.trust + 0.18);
@@ -184,7 +201,10 @@ function runTrade(world: WorldState) {
     sellerRelation.tension = clamp(sellerRelation.tension - 0.06);
 
     if (world.week % 13 === 0) {
-      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).`);
+      const treatyNote = treatyPolicy.tariffPct || treatyPolicy.discountPct || Number.isFinite(treatyPolicy.quotaRemaining)
+        ? ` Treaty terms apply (${Math.round(treatyPolicy.tariffPct)}% tariff, ${Math.round(treatyPolicy.discountPct)}% preference).`
+        : "";
+      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}`);
     }
   }
 }
@@ -243,7 +263,7 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (countryAtWar(world, attacker.id)) continue;
     const targets = world.countries
-      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
+      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && !isNonAggressionActive(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
       .map((defender) => ({ defender, appetite: warAppetite(attacker, defender) }))
       .sort((a, b) => b.appetite - a.appetite);
 
@@ -360,8 +380,10 @@ export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
   expireTruces(world);
   resetRouteUsage(world);
+  resetTreatyWeeklyUsage(world);
   const rng = createRng(world.seed + world.week * 7919);
 
+  for (const message of processTreaties(world)) addEvent(world, "diplomacy", message);
   for (const message of runGovernments(world, rng)) addEvent(world, "politics", message);
   runEconomy(world, rng);
 
@@ -387,9 +409,10 @@ export function tickWeek(world: WorldState): WorldState {
     const busiest = [...world.geography.routes].sort((a, b) => b.usedThisWeek - a.usedThisWeek)[0];
     const highestInfra = [...world.geography.routes].sort((a, b) => b.level - a.level || b.condition - a.condition)[0];
     const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
+    const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
     const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
     const infraNote = highestInfra ? ` Top infrastructure is level ${highestInfra.level} ${highestInfra.infrastructure}.` : "";
-    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade.`);
+    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${activeTreaties} treaty${activeTreaties === 1 ? " is" : "ies are"} active.`);
   }
   return world;
 }

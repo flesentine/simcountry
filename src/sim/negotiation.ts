@@ -24,6 +24,7 @@ const NEGOTIATION_COOLDOWN_WEEKS = 39;
 const ACCEPTED_COOLDOWN_WEEKS = 78;
 const MAX_ROUNDS = 3;
 const INITIATION_INTERVAL_WEEKS = 13;
+const MAX_NEW_NEGOTIATIONS_PER_CYCLE = 2;
 // With eight countries and bandwidth capped at three, at most twelve talks can
 // be open at once. A 128-item tail safely covers every agreement that can still
 // be open or inside the longest (78-week) cooldown while preserving full history.
@@ -368,7 +369,9 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
       return { ...clause };
     }),
   };
-  if (proposal.motive === "security" && draft.expiryWeek !== null) draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 156);
+  if (proposal.motive === "security" && draft.expiryWeek !== null && draft.expiryWeek !== undefined) {
+    draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 156);
+  }
   return defensiveDraft(world, draft);
 }
 
@@ -514,7 +517,9 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
     }
   }
 
+  let startedThisCycle = 0;
   for (const proposer of world.countries) {
+    if (startedThisCycle >= MAX_NEW_NEGOTIATIONS_PER_CYCLE) break;
     if ((openCounts.get(proposer.id) ?? 0) >= diplomaticBandwidth(proposer)) continue;
     const candidates = world.countries
       .filter((recipient) => recipient.id !== proposer.id)
@@ -538,6 +543,7 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       unavailablePairs.add(pairKey(proposer.id, candidate.recipient.id));
       openCounts.set(proposer.id, (openCounts.get(proposer.id) ?? 0) + 1);
       openCounts.set(candidate.recipient.id, (openCounts.get(candidate.recipient.id) ?? 0) + 1);
+      startedThisCycle += 1;
       messages.push(`${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.`);
       break;
     }

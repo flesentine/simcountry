@@ -11,28 +11,14 @@ import type {
   TariffClause,
   Treaty,
   TreatyClause,
+  TreatyClauseDraft,
+  TreatyDraft,
   TreatyObligation,
   TreatyViolation,
   WorldState,
 } from "../model/types";
 
-export type TreatyClauseDraft =
-  | { kind: "preferential_trade"; grantorId: string; beneficiaryId: string; discountPct: number; resource?: Resource | null }
-  | { kind: "tariff"; importerId: string; exporterId: string; ratePct: number; resource?: Resource | null }
-  | { kind: "quota"; exporterId: string; importerId: string; resource: Resource; maxUnitsPerWeek: number }
-  | { kind: "non_aggression" }
-  | { kind: "sanction"; imposerId: string; targetId: string; resource?: Resource | null }
-  | { kind: "loan"; creditorId: string; debtorId: string; principal: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number }
-  | { kind: "reparations"; payerId: string; payeeId: string; totalAmount: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number };
-
-export interface TreatyDraft {
-  title: string;
-  parties: [string, string];
-  effectiveWeek?: number;
-  expiryWeek?: number | null;
-  withdrawalNoticeWeeks?: number;
-  clauses: TreatyClauseDraft[];
-}
+export type { TreatyClauseDraft, TreatyDraft } from "../model/types";
 
 export type TreatyRegistrationResult =
   | { ok: true; treaty: Treaty }

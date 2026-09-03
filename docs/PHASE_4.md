@@ -38,7 +38,7 @@ Every clause is explicitly one of three classes:
 
 This separation is intentional. Permissions, restrictions and recurring obligations have different enforcement and failure semantics.
 
-### Atomic registration
+### Atomic registration and activation
 
 Treaty registration validates the entire package before any authoritative world mutation. Validation checks:
 - two distinct existing parties
@@ -50,11 +50,13 @@ Treaty registration validates the entire package before any authoritative world 
 - overlapping conflicting clauses in existing non-terminal treaties
 - immediate non-aggression conflicts with an active war
 
-If validation fails:
+If registration validation fails:
 - no treaty is added
 - the treaty ID counter does not move
 - no treasury is moved into escrow
 - no clause becomes active
+
+Future-effective treaties receive a second activation-time integrity check. If a pending non-aggression treaty reaches its effective week after one party has already begun a war against the other, activation fails atomically: loan escrow is refunded, the treaty and non-aggression clause are marked violated, the war's attacker is recorded as the violator, the counterpart is recorded as the injured party, and a `non_aggression_breach` enters the persistent treaty-violation ledger.
 
 ### Financial escrow and obligations
 
@@ -78,6 +80,8 @@ Obligations track:
 
 Payments may be partial down to the existing national debt floor. Three missed scheduled payments produce a material breach and a treaty-violation record.
 
+Lawful withdrawal or treaty expiry terminates the treaty's continuing permissions and restrictions, but it does **not** erase financial debt already created by an activated loan or reparations clause. Accrued obligations continue to reconcile until fulfilled, defaulted or later handled by a future settlement mechanic. This prevents withdrawal from functioning as debt cancellation.
+
 ### Trade enforcement
 
 The existing trade engine now consults active treaty state before selecting and executing a transaction.
@@ -92,7 +96,9 @@ Quota use is authoritative state and resets at the beginning of each simulation 
 
 ### Non-aggression enforcement
 
-Autonomous war selection excludes pairs covered by an active non-aggression clause. Phase 4.0 treats that restriction as hard enforcement. Deliberate treaty-breaking behavior belongs to Phase 4.2, where violation choice and diplomatic consequences will become explicit.
+Autonomous war selection excludes pairs covered by an active non-aggression clause. Phase 4.0 treats that restriction as hard enforcement. Deliberate treaty-breaking behavior after activation belongs to Phase 4.2, where violation choice and diplomatic consequences will become explicit.
+
+A future-dated non-aggression commitment does not constrain either party before its effective week. If one party starts a war in that interval and the war is still active when the treaty should enter force, the treaty fails activation and records the attacker as having breached the pending commitment.
 
 ### Conflict rules
 
@@ -110,13 +116,17 @@ Regression tests cover:
 - deterministic empty initial treaty state
 - atomic validation failure
 - loan escrow and future activation
+- activation-time rollback and non-aggression breach recording
 - treasury conservation through repayment
+- debt survival after lawful withdrawal
 - sanctions, tariffs, preferences and quotas
+- reciprocal directional trade terms
 - partner-selection enforcement
 - non-aggression enforcement in autonomous simulation
 - lawful withdrawal
 - expiry
 - payment default and reason-coded violation
+- replacement of policy scope after a violated treaty
 - financial schedules that would outlive treaty expiry
 
 The 100-seed × 500-year stress gate creates a real commerce/credit/non-aggression treaty fixture in every world and additionally checks:
@@ -142,7 +152,7 @@ The 100-seed × 500-year stress gate creates a real commerce/credit/non-aggressi
 
 ## Deferred to Phase 4.2
 
-- deliberate treaty violations
+- deliberate treaty violations after activation
 - treaty credibility/reliability
 - diplomatic memory and category-specific decay
 - violation severity and consequences

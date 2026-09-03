@@ -267,27 +267,58 @@ export function evaluateTreatyProposal(
   };
 }
 
-function mostNeededResource(country: Country) {
-  return (["food", "energy", "metals", "goods"] as const)
-    .map((resource) => ({ resource, weeks: country.resources[resource] / Math.max(0.1, country.needs[resource]) }))
-    .sort((a, b) => a.weeks - b.weeks)[0]!.resource;
+const TRADE_RESOURCES = ["food", "energy", "metals", "goods"] as const;
+
+function resourceWeeks(country: Country, resource: (typeof TRADE_RESOURCES)[number]) {
+  return country.resources[resource] / Math.max(0.1, country.needs[resource]);
+}
+
+function bestTradeOpportunity(buyer: Country, seller: Country) {
+  const opportunities = TRADE_RESOURCES
+    .map((resource) => {
+      const buyerWeeks = resourceWeeks(buyer, resource);
+      const sellerWeeks = resourceWeeks(seller, resource);
+      return { resource, buyerWeeks, sellerWeeks, advantage: sellerWeeks - buyerWeeks };
+    })
+    // Require a real comparative stock advantage so diplomacy does not create
+    // decorative trade preferences that the counterpart cannot meaningfully supply.
+    .filter((entry) => entry.sellerWeeks >= 4 && entry.advantage >= 1.5)
+    .sort((a, b) => b.advantage - a.advantage || a.buyerWeeks - b.buyerWeeks);
+  return opportunities[0] ?? null;
 }
 
 function draftForMotive(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive): TreatyDraft | null {
   const effectiveWeek = world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS;
   if (motive === "trade_access") {
-    const resource = mostNeededResource(proposer);
+    const proposerImport = bestTradeOpportunity(proposer, recipient);
+    if (!proposerImport) return null;
+    const recipientImport = bestTradeOpportunity(recipient, proposer);
     const discount = round(clamp(4 + proposer.government.agenda.tradeOpenness / 20, 5, 9));
+    const clauses: TreatyClauseDraft[] = [
+      {
+        kind: "preferential_trade",
+        grantorId: proposer.id,
+        beneficiaryId: recipient.id,
+        discountPct: discount,
+        resource: proposerImport.resource,
+      },
+    ];
+    if (recipientImport && recipientImport.resource !== proposerImport.resource) {
+      clauses.push({
+        kind: "preferential_trade",
+        grantorId: recipient.id,
+        beneficiaryId: proposer.id,
+        discountPct: discount,
+        resource: recipientImport.resource,
+      });
+    }
     return {
       title: `${proposer.name}–${recipient.name} Trade Compact`,
       parties: [proposer.id, recipient.id],
       effectiveWeek,
       expiryWeek: world.week + 156,
       withdrawalNoticeWeeks: 13,
-      clauses: [
-        { kind: "preferential_trade", grantorId: proposer.id, beneficiaryId: recipient.id, discountPct: discount, resource },
-        { kind: "preferential_trade", grantorId: recipient.id, beneficiaryId: proposer.id, discountPct: discount, resource },
-      ],
+      clauses,
     };
   }
 
@@ -333,10 +364,16 @@ function motiveScores(world: WorldState, proposer: Country, recipient: Country) 
   const route = hasDirectRoute(world, proposer.id, recipient.id);
   const scores: { motive: NegotiationMotive; score: number }[] = [];
 
-  if (route && !atWar(world, proposer.id, recipient.id)) {
+  const tradeOpportunity = route ? bestTradeOpportunity(proposer, recipient) : null;
+  if (route && tradeOpportunity && !atWar(world, proposer.id, recipient.id)) {
     scores.push({
       motive: "trade_access",
-      score: 32 + proposer.policy.commerce * 0.24 + proposer.government.agenda.tradeOpenness * 0.23 + relation.trust * 0.18 - relation.tension * 0.10,
+      score: 28
+        + proposer.policy.commerce * 0.24
+        + proposer.government.agenda.tradeOpenness * 0.23
+        + relation.trust * 0.18
+        - relation.tension * 0.10
+        + Math.min(12, tradeOpportunity.advantage * 1.5),
     });
   }
 

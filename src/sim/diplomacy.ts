@@ -213,6 +213,24 @@ export function credibilityReputation(world: WorldState, subjectId: string) {
   return observers.reduce((sum, observer) => sum + getCredibility(world, observer.id, subjectId), 0) / observers.length;
 }
 
+export function obligationRefusalPressure(world: WorldState, payer: Country, payee: Country) {
+  const relation = payer.relations[payee.id];
+  const reputation = credibilityReputation(world, payer.id);
+  const counterpartCredibility = getCredibility(world, payer.id, payee.id);
+  return clamp(
+    15
+      + payer.policy.expansionism * 0.18
+      + payer.policy.risk * 0.14
+      + payer.government.leader.traits.nationalism * 0.18
+      + payer.government.leader.traits.corruption * 0.12
+      + (relation?.tension ?? 50) * 0.20
+      - payer.policy.diplomacy * 0.16
+      - payer.government.agenda.diplomaticEngagement * 0.12
+      - reputation * 0.10
+      - counterpartCredibility * 0.05,
+  );
+}
+
 export function nonAggressionBreachPressure(world: WorldState, attacker: Country, defender: Country) {
   const relation = attacker.relations[defender.id];
   const reputation = credibilityReputation(world, attacker.id);

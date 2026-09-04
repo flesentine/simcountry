@@ -350,6 +350,21 @@ function render() {
   });
 }
 
+
+// At accelerated speeds the app re-renders every 120ms. Keep the current
+// interactive node alive for the duration of a pointer press so a normal
+// human-length click cannot begin on one button and end on its replacement.
+app.addEventListener("pointerdown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  pointerControlActive = Boolean(target?.closest("button, select"));
+});
+window.addEventListener("pointerup", () => {
+  pointerControlActive = false;
+});
+window.addEventListener("pointercancel", () => {
+  pointerControlActive = false;
+});
+
 function syncTimer() {
   if (timer !== null) window.clearInterval(timer);
   timer = null;
@@ -358,7 +373,7 @@ function syncTimer() {
     if (speedControlActive) return;
     const steps = speed === 1 ? 1 : Math.max(1, Math.floor(speed / 5));
     for (let i = 0; i < steps; i++) tickWeek(world);
-    render();
+    if (!pointerControlActive) render();
   }, speed === 1 ? 650 : 120);
 }
 

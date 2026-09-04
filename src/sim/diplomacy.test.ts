@@ -7,6 +7,7 @@ import {
   memorySalience,
   nonAggressionBreachPressure,
   recordDiplomaticMemory,
+  treatyWithdrawalDecision,
 } from "./diplomacy";
 import { evaluateTreatyProposal } from "./negotiation";
 import {
@@ -90,6 +91,45 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
     expect(getCredibility(world, defender.id, attacker.id)).toBeLessThan(directBefore - 30);
     expect(getCredibility(world, thirdParty.id, attacker.id)).toBeLessThan(publicBefore - 8);
     expect(getCredibility(world, defender.id, attacker.id)).toBeLessThan(getCredibility(world, thirdParty.id, attacker.id));
+  });
+
+  test("one severe public breach can make a hardline third party consider lawful withdrawal", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const injured = world.countries.find((country) => country.id === route.a)!;
+    const unreliable = world.countries.find((country) => country.id === route.b)!;
+    const observer = world.countries.find((country) => country.id !== injured.id && country.id !== unreliable.id)!;
+
+    observer.policy.expansionism = 60;
+    observer.policy.diplomacy = 35;
+    observer.government.agenda.diplomaticEngagement = 35;
+    observer.relations[unreliable.id]!.tension = 35;
+
+    const before = treatyWithdrawalDecision(world, observer, unreliable);
+    expect(before.eligible).toBe(false);
+
+    recordDiplomaticMemory(world, {
+      subjectId: unreliable.id,
+      counterpartId: injured.id,
+      category: "commitment_breached",
+      severity: 90,
+      sourceType: "treaty",
+      sourceId: "public-breach",
+      description: "A severe breach becomes public diplomatic knowledge.",
+    });
+
+    const damagedCredibility = getCredibility(world, observer.id, unreliable.id);
+    const after = treatyWithdrawalDecision(world, observer, unreliable);
+    expect(damagedCredibility).toBeGreaterThanOrEqual(38);
+    expect(damagedCredibility).toBeLessThan(42);
+    expect(after.eligible).toBe(true);
+    expect(after.chance).toBeGreaterThan(0);
+
+    observer.policy.expansionism = 0;
+    observer.policy.diplomacy = 100;
+    observer.government.agenda.diplomaticEngagement = 100;
+    observer.relations[unreliable.id]!.tension = 20;
+    expect(treatyWithdrawalDecision(world, observer, unreliable).eligible).toBe(false);
   });
 
   test("lawful withdrawal is remembered but is not treated as a credibility breach", () => {

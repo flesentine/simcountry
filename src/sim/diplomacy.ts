@@ -16,7 +16,7 @@ type DiplomaticMemoryCache = {
 };
 
 const MEMORY_CACHE = new WeakMap<WorldState, DiplomaticMemoryCache>();
-const DIPLOMATIC_STATE_COUNTRY_COUNT = new WeakMap<WorldState, number>();
+const DIPLOMATIC_STATE_SIGNATURE = new WeakMap<WorldState, string>();
 
 function memoryKey(memory: Pick<DiplomaticMemory, "sourceType" | "sourceId" | "category" | "subjectId" | "counterpartId">) {
   return `${memory.sourceType}|${memory.sourceId}|${memory.category}|${memory.subjectId}|${memory.counterpartId}`;
@@ -60,15 +60,22 @@ function countryById(world: WorldState, id: string) {
 }
 
 export function ensureDiplomaticState(world: WorldState) {
+  const signature = world.countries.map((country) => country.id).sort().join("|");
   if (
-    DIPLOMATIC_STATE_COUNTRY_COUNT.get(world) === world.countries.length
+    DIPLOMATIC_STATE_SIGNATURE.get(world) === signature
     && world.nextDiplomaticMemoryId !== undefined
     && world.diplomaticMemories !== undefined
     && world.diplomaticCredibility !== undefined
   ) return;
 
-  world.nextDiplomaticMemoryId ??= 1;
   world.diplomaticMemories ??= [];
+  if (world.nextDiplomaticMemoryId === undefined) {
+    const maxMemoryId = world.diplomaticMemories.reduce((max, memory) => {
+      const numeric = Number(memory.id.startsWith("memory-") ? memory.id.slice("memory-".length) : NaN);
+      return Number.isSafeInteger(numeric) ? Math.max(max, numeric) : max;
+    }, 0);
+    world.nextDiplomaticMemoryId = maxMemoryId + 1;
+  }
   world.diplomaticCredibility ??= {};
 
   for (const observer of world.countries) {
@@ -81,7 +88,7 @@ export function ensureDiplomaticState(world: WorldState) {
       };
     }
   }
-  DIPLOMATIC_STATE_COUNTRY_COUNT.set(world, world.countries.length);
+  DIPLOMATIC_STATE_SIGNATURE.set(world, signature);
 }
 
 function standing(world: WorldState, observerId: string, subjectId: string): DiplomaticCredibility {

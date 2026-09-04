@@ -16,6 +16,7 @@ type DiplomaticMemoryCache = {
 };
 
 const MEMORY_CACHE = new WeakMap<WorldState, DiplomaticMemoryCache>();
+const DIPLOMATIC_STATE_COUNTRY_COUNT = new WeakMap<WorldState, number>();
 
 function memoryKey(memory: Pick<DiplomaticMemory, "sourceType" | "sourceId" | "category" | "subjectId" | "counterpartId">) {
   return `${memory.sourceType}|${memory.sourceId}|${memory.category}|${memory.subjectId}|${memory.counterpartId}`;
@@ -59,6 +60,13 @@ function countryById(world: WorldState, id: string) {
 }
 
 export function ensureDiplomaticState(world: WorldState) {
+  if (
+    DIPLOMATIC_STATE_COUNTRY_COUNT.get(world) === world.countries.length
+    && world.nextDiplomaticMemoryId !== undefined
+    && world.diplomaticMemories !== undefined
+    && world.diplomaticCredibility !== undefined
+  ) return;
+
   world.nextDiplomaticMemoryId ??= 1;
   world.diplomaticMemories ??= [];
   world.diplomaticCredibility ??= {};
@@ -73,6 +81,7 @@ export function ensureDiplomaticState(world: WorldState) {
       };
     }
   }
+  DIPLOMATIC_STATE_COUNTRY_COUNT.set(world, world.countries.length);
 }
 
 function standing(world: WorldState, observerId: string, subjectId: string): DiplomaticCredibility {
@@ -103,7 +112,8 @@ function setCredibility(world: WorldState, observerId: string, subjectId: string
 function credibilityDelta(category: DiplomaticMemoryCategory, severity: number, direct: boolean) {
   if (category === "commitment_breached") return -severity * (direct ? 0.42 : 0.12);
   if (category === "commitment_honored") return severity * (direct ? 0.18 : 0.05);
-  if (category === "agreement_signed") return direct ? 0.5 : 0.15;
+  // Signing a promise is historical context, not evidence that it will be kept.
+  if (category === "agreement_signed") return 0;
   return 0;
 }
 

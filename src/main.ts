@@ -14,6 +14,7 @@ let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
 let speedControlActive = false;
+let pointerControlActive = false;
 
 const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });

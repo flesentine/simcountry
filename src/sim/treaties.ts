@@ -315,13 +315,14 @@ function createObligation(treaty: Treaty, clause: LoanClause | ReparationsClause
   };
 }
 
-function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week">) {
+function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week" | "deliberate"> & { deliberate?: boolean }) {
   if (world.treatyViolations.some((existing) => existing.treatyId === treaty.id && existing.clauseId === violation.clauseId && existing.violatorId === violation.violatorId && existing.reason === violation.reason && existing.week === world.week)) return;
   const recorded: TreatyViolation = {
     id: `violation-${treaty.id}-${world.week}-${world.treatyViolations.length + 1}`,
     treatyId: treaty.id,
     week: world.week,
     ...violation,
+    deliberate: violation.deliberate ?? false,
   };
   world.treatyViolations.push(recorded);
   recordDiplomaticMemory(world, {
@@ -331,7 +332,7 @@ function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyV
     severity: violation.severity,
     sourceType: "treaty",
     sourceId: recorded.id,
-    description: `${countryById(world, violation.violatorId)?.name ?? violation.violatorId} breached ${treaty.title} (${violation.reason}).`,
+    description: `${countryById(world, violation.violatorId)?.name ?? violation.violatorId} ${violation.deliberate ? "deliberately " : ""}breached ${treaty.title} (${violation.reason}).`,
   });
 }
 
@@ -482,6 +483,7 @@ export function breachNonAggressionForWar(world: WorldState, attackerId: string,
       injuredPartyId: defenderId,
       reason: "non_aggression_breach",
       severity: 90,
+      deliberate: true,
     });
     syncTreatyCache(world, treaty);
     messages.push(`${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`);

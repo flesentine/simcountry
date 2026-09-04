@@ -2,7 +2,7 @@ import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite 
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
-import { ensureDiplomaticState, getCredibility, nonAggressionBreachPressure } from "./diplomacy";
+import { ensureDiplomaticState, nonAggressionBreachPressure, treatyWithdrawalDecision } from "./diplomacy";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
@@ -287,23 +287,12 @@ function considerTreatyWithdrawals(world: WorldState, rng: ReturnType<typeof cre
       const relation = country.relations[counterpartId];
       if (!counterpart || !relation) continue;
 
-      const credibility = getCredibility(world, country.id, counterpartId);
-      const pressure = clamp(
-        (50 - credibility) * 0.62
-          + relation.tension * 0.30
-          + country.policy.expansionism * 0.08
-          - country.policy.diplomacy * 0.13
-          - country.government.agenda.diplomaticEngagement * 0.11,
-        0,
-        100,
-      );
-      if (credibility >= 32 || pressure < 28) continue;
-      const chance = clamp((pressure - 24) / 180, 0.015, 0.11);
-      if (rng.next() > chance) continue;
+      const decision = treatyWithdrawalDecision(world, country, counterpart);
+      if (!decision.eligible || rng.next() > decision.chance) continue;
 
       const result = requestTreatyWithdrawal(world, treaty.id, country.id);
       if (result.ok) {
-        messages.push(`${country.name} gives lawful withdrawal notice from ${treaty.title} after confidence in ${counterpart.name}'s reliability falls to ${Math.round(credibility)}.`);
+        messages.push(`${country.name} gives lawful withdrawal notice from ${treaty.title} after confidence in ${counterpart.name}'s reliability falls to ${Math.round(decision.credibility)}.`);
         break;
       }
     }

@@ -10,6 +10,7 @@ import {
 import { evaluateTreatyProposal } from "./negotiation";
 import {
   breachNonAggressionForWar,
+  processTreaties,
   registerTreaty,
   requestTreatyWithdrawal,
 } from "./treaties";
@@ -154,6 +155,52 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
 
     expect(after).toBeLessThan(before - 3);
     expect(getCredibility(world, a.id, b.id)).toBeLessThan(20);
+  });
+
+  test("a solvent hardline debtor can deliberately refuse payment", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const creditor = world.countries.find((country) => country.id === route.a)!;
+    const debtor = world.countries.find((country) => country.id === route.b)!;
+    creditor.treasury = Math.max(creditor.treasury, creditor.population * 8 + 20);
+    const result = registerTreaty(world, {
+      title: "Refusal test credit",
+      parties: [creditor.id, debtor.id],
+      expiryWeek: 30,
+      clauses: [{
+        kind: "loan",
+        creditorId: creditor.id,
+        debtorId: debtor.id,
+        principal: 3,
+        installment: 1,
+        intervalWeeks: 1,
+        firstPaymentDelayWeeks: 1,
+      }],
+    });
+    expect(result.ok).toBe(true);
+
+    debtor.policy.expansionism = 100;
+    debtor.policy.risk = 100;
+    debtor.policy.diplomacy = 0;
+    debtor.government.agenda.diplomaticEngagement = 0;
+    debtor.government.leader.traits.nationalism = 100;
+    debtor.government.leader.traits.corruption = 100;
+    debtor.relations[creditor.id]!.tension = 100;
+    debtor.treasury = Math.max(debtor.treasury, 50);
+    const credibilityBefore = getCredibility(world, creditor.id, debtor.id);
+
+    for (let week = 1; week <= 3; week++) {
+      world.week = week;
+      processTreaties(world);
+    }
+
+    const obligation = result.ok ? result.treaty.obligations[0]! : null;
+    expect(obligation?.status).toBe("defaulted");
+    expect(obligation?.failureReason).toBe("deliberate_refusal");
+    const violation = world.treatyViolations.at(-1)!;
+    expect(violation.reason).toBe("deliberate_refusal");
+    expect(violation.deliberate).toBe(true);
+    expect(getCredibility(world, creditor.id, debtor.id)).toBeLessThan(credibilityBefore - 20);
   });
 
   test("breach pressure distinguishes revisionist and diplomatic governments", () => {

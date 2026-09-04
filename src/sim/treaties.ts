@@ -1,3 +1,4 @@
+import { recordDiplomaticMemory } from "./diplomacy";
 import type {
   Country,
   LoanClause,
@@ -316,11 +317,21 @@ function createObligation(treaty: Treaty, clause: LoanClause | ReparationsClause
 
 function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week">) {
   if (world.treatyViolations.some((existing) => existing.treatyId === treaty.id && existing.clauseId === violation.clauseId && existing.violatorId === violation.violatorId && existing.reason === violation.reason && existing.week === world.week)) return;
-  world.treatyViolations.push({
+  const recorded: TreatyViolation = {
     id: `violation-${treaty.id}-${world.week}-${world.treatyViolations.length + 1}`,
     treatyId: treaty.id,
     week: world.week,
     ...violation,
+  };
+  world.treatyViolations.push(recorded);
+  recordDiplomaticMemory(world, {
+    subjectId: violation.violatorId,
+    counterpartId: violation.injuredPartyId,
+    category: "commitment_breached",
+    severity: violation.severity,
+    sourceType: "treaty",
+    sourceId: recorded.id,
+    description: `${countryById(world, violation.violatorId)?.name ?? violation.violatorId} breached ${treaty.title} (${violation.reason}).`,
   });
 }
 
@@ -417,6 +428,18 @@ export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyReg
 
   world.nextTreatyId += 1;
   world.treaties.push(treaty);
+  for (const subjectId of treaty.parties) {
+    const counterpartId = treaty.parties.find((id) => id !== subjectId) ?? subjectId;
+    recordDiplomaticMemory(world, {
+      subjectId,
+      counterpartId,
+      category: "agreement_signed",
+      severity: 12,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, subjectId)?.name ?? subjectId} signs ${treaty.title} with ${countryById(world, counterpartId)?.name ?? counterpartId}.`,
+    });
+  }
   syncTreatyCache(world, treaty);
   if (effectiveWeek <= world.week) activateTreaty(world, treaty);
   return { ok: true, treaty };
@@ -537,12 +560,42 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
   }
 }
 
+function recordTreatyHonored(world: WorldState, treaty: Treaty) {
+  for (const subjectId of treaty.parties) {
+    const counterpartId = treaty.parties.find((id) => id !== subjectId) ?? subjectId;
+    recordDiplomaticMemory(world, {
+      subjectId,
+      counterpartId,
+      category: "commitment_honored",
+      severity: 34,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, subjectId)?.name ?? subjectId} completed its commitments under ${treaty.title}.`,
+    });
+  }
+}
+
 function terminateTreaty(world: WorldState, treaty: Treaty, status: "expired" | "withdrawn") {
-  if (treaty.status === "pending") refundEscrow(world, treaty);
+  const wasPending = treaty.status === "pending";
+  if (wasPending) refundEscrow(world, treaty);
   treaty.status = status;
   treaty.terminalReason = status === "expired" ? "expiry" : "lawful_withdrawal";
   for (const clause of treaty.clauses) {
     if (clause.class !== "obligation" || clause.status === "active" || clause.status === "pending") clause.status = status;
+  }
+  if (status === "withdrawn" && treaty.withdrawalRequestedBy) {
+    const counterpartId = treaty.parties.find((id) => id !== treaty.withdrawalRequestedBy) ?? treaty.withdrawalRequestedBy;
+    recordDiplomaticMemory(world, {
+      subjectId: treaty.withdrawalRequestedBy,
+      counterpartId,
+      category: "lawful_withdrawal",
+      severity: 24,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} lawfully withdrew from ${treaty.title}.`,
+    });
+  } else if (status === "expired" && !treaty.obligations.some((obligation) => obligation.status === "active" || obligation.status === "defaulted")) {
+    recordTreatyHonored(world, treaty);
   }
   syncTreatyCache(world, treaty);
 }
@@ -589,6 +642,7 @@ export function processTreaties(world: WorldState) {
     if (treaty.status === "active" && allObligationsFulfilled && !hasOngoingClauses && treaty.expiryWeek === null) {
       treaty.status = "fulfilled";
       treaty.terminalReason = "term_completed";
+      recordTreatyHonored(world, treaty);
       messages.push(`${treaty.title} is fulfilled after all obligations are completed.`);
     }
     syncTreatyCache(world, treaty);

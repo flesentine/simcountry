@@ -235,6 +235,81 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(world.treaties).toHaveLength(0);
   });
 
+  test("a failed counter authorization ends talks with an explicit reason", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const debtor = world.countries.find((country) => country.id === route.a)!;
+    const creditor = world.countries.find((country) => country.id === route.b)!;
+    world.week = 13;
+    creditor.relations[debtor.id]!.trust = 80;
+    creditor.government.dissent = 100;
+    creditor.government.cohesion = 0;
+    creditor.government.legitimacy = 45;
+    creditor.government.leader.traits.nationalism = 45;
+    creditor.government.leader.traits.pragmatism = 50;
+
+    const draft: TreatyDraft = {
+      title: "Marginal credit package",
+      parties: [debtor.id, creditor.id],
+      effectiveWeek: 21,
+      expiryWeek: 150,
+      withdrawalNoticeWeeks: 13,
+      clauses: [{
+        kind: "loan",
+        creditorId: creditor.id,
+        debtorId: debtor.id,
+        principal: 3,
+        installment: 0.375,
+        intervalWeeks: 13,
+        firstPaymentDelayWeeks: 13,
+      }],
+    };
+    const negotiation: Negotiation = {
+      id: "negotiation-1",
+      parties: [debtor.id, creditor.id],
+      initiatorId: debtor.id,
+      motive: "financing",
+      status: "open",
+      startedWeek: 13,
+      lastActionWeek: 13,
+      cooldownUntilWeek: 0,
+      currentProposalId: "proposal-1",
+      proposalIds: ["proposal-1"],
+      maxRounds: 3,
+      outcomeTreatyId: null,
+      terminalReason: null,
+    };
+    const proposal: Proposal = {
+      id: "proposal-1",
+      negotiationId: negotiation.id,
+      round: 1,
+      proposerId: debtor.id,
+      recipientId: creditor.id,
+      motive: "financing",
+      createdWeek: 13,
+      expiresWeek: 25,
+      responseToProposalId: null,
+      draft,
+      status: "pending",
+      decisionReason: null,
+      evaluations: [],
+    };
+    world.negotiations.push(negotiation);
+    world.proposals.push(proposal);
+    world.nextNegotiationId = 2;
+    world.nextProposalId = 2;
+
+    world.week = 14;
+    processNegotiations(world, always(1));
+
+    expect(proposal.evaluations.at(-1)?.decision).toBe("counter");
+    expect(proposal.status).toBe("rejected");
+    expect(proposal.decisionReason).toMatch(/counter authorization failed/);
+    expect(negotiation.status).toBe("rejected");
+    expect(negotiation.terminalReason).toMatch(/counter authorization failed/);
+    expect(world.proposals).toHaveLength(1);
+  });
+
   test("a revisionist cabinet issues a self-authorized shorter security counter", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;

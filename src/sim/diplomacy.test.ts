@@ -236,6 +236,50 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
     expect(getCredibility(world, creditor.id, debtor.id)).toBeLessThan(credibilityBefore - 20);
   });
 
+  test("deliberate refusal preserves treasury conservation", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const creditor = world.countries.find((country) => country.id === route.a)!;
+    const debtor = world.countries.find((country) => country.id === route.b)!;
+    creditor.treasury = Math.max(creditor.treasury, creditor.population * 8 + 20);
+    debtor.treasury = Math.max(debtor.treasury, 50);
+
+    const before = world.countries.reduce((sum, country) => sum + country.treasury, 0);
+    const result = registerTreaty(world, {
+      title: "Conservation test credit",
+      parties: [creditor.id, debtor.id],
+      expiryWeek: 30,
+      clauses: [{
+        kind: "loan",
+        creditorId: creditor.id,
+        debtorId: debtor.id,
+        principal: 3,
+        installment: 1,
+        intervalWeeks: 1,
+        firstPaymentDelayWeeks: 1,
+      }],
+    });
+    expect(result.ok).toBe(true);
+    expect(world.countries.reduce((sum, country) => sum + country.treasury, 0)).toBeCloseTo(before, 8);
+
+    debtor.policy.expansionism = 100;
+    debtor.policy.risk = 100;
+    debtor.policy.diplomacy = 0;
+    debtor.government.agenda.diplomaticEngagement = 0;
+    debtor.government.leader.traits.nationalism = 100;
+    debtor.government.leader.traits.corruption = 100;
+    debtor.relations[creditor.id]!.tension = 100;
+
+    const afterActivation = world.countries.reduce((sum, country) => sum + country.treasury, 0);
+    for (let week = 1; week <= 3; week++) {
+      world.week = week;
+      processTreaties(world);
+    }
+
+    expect(world.treatyViolations.at(-1)?.reason).toBe("deliberate_refusal");
+    expect(world.countries.reduce((sum, country) => sum + country.treasury, 0)).toBeCloseTo(afterActivation, 8);
+  });
+
   test("breach pressure distinguishes revisionist and diplomatic governments", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;

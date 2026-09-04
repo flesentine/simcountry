@@ -180,7 +180,8 @@ function renderNegotiations(selected: Country) {
         const current = negotiation.currentProposalId ? world.proposals.find((proposal) => proposal.id === negotiation.currentProposalId) : undefined;
         const selectedEvaluation = current?.evaluations.filter((evaluation) => evaluation.countryId === selected.id).at(-1);
         const direction = current ? `${countryById(current.proposerId)?.name ?? current.proposerId} → ${countryById(current.recipientId)?.name ?? current.recipientId}` : "closed";
-        const score = selectedEvaluation ? ` · cabinet ${selectedEvaluation.decision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
+        const displayedDecision = selectedEvaluation?.decision === "counter" && current?.status === "rejected" ? "counter attempt" : selectedEvaluation?.decision;
+        const score = selectedEvaluation ? ` · cabinet ${displayedDecision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
         const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
         return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
       }).join("") : "<p>No diplomatic talks yet.</p>"}

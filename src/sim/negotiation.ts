@@ -92,7 +92,7 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
 
   // Credibility is distinct from current relationship warmth: a friendly state
   // can still be an unreliable treaty partner, and a tense state can be reliable.
-  add("diplomacy", (credibility - 50) * 0.12);
+  add("diplomacy", (credibility - 50) * 0.18);
 
   for (const clause of draft.clauses) {
     if (clause.kind === "preferential_trade") {
@@ -129,10 +129,10 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         ? 260
         : Math.max(1, draft.expiryWeek - (draft.effectiveWeek ?? world.week));
       const termYears = clamp(termWeeks / 52, 0.25, 5);
-      add("diplomacy", 4 + tension * 0.07 + trust * 0.035 + (credibility - 50) * 0.08 + Math.min(3, termYears * 0.6));
+      add("diplomacy", 4 + tension * 0.07 + trust * 0.035 + (credibility - 50) * 0.12 + Math.min(3, termYears * 0.6));
       add("stability", 3 + tension * 0.05 + Math.min(2, termYears * 0.35));
       // Longer commitments buy more predictability but constrain revisionist states more.
-      add("defense", 10 + tension * 0.10 + (credibility - 50) * 0.10 - country.policy.expansionism * (0.08 + termYears * 0.04));
+      add("defense", 10 + tension * 0.10 + (credibility - 50) * 0.15 - country.policy.expansionism * (0.08 + termYears * 0.04));
     } else if (clause.kind === "sanction") {
       if (clause.imposerId === country.id) {
         add("defense", 4 + tension * 0.08);

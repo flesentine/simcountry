@@ -1,3 +1,4 @@
+import { getCredibility, memorySalience } from "./diplomacy";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
@@ -28,6 +29,11 @@ let finalChokepoints = 0;
 let treatyFixtures = 0;
 let fulfilledFixtureObligations = 0;
 let treatyViolations = 0;
+let deliberateTreatyViolations = 0;
+let diplomaticMemories = 0;
+let lawfulWithdrawalMemories = 0;
+let minCredibility = 100;
+let maxCredibility = 0;
 let negotiationsStarted = 0;
 let acceptedNegotiations = 0;
 let rejectedNegotiations = 0;
@@ -190,6 +196,43 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   invariant(world.negotiations.length <= 4_000, `seed ${seed}: negotiation history exceeded two openings per quarter`);
   invariant(world.proposals.length <= 12_000, `seed ${seed}: proposal history exceeded three rounds per negotiation`);
 
+  const memoryIds = new Set<string>();
+  for (const memory of world.diplomaticMemories) {
+    invariant(!memoryIds.has(memory.id), `seed ${seed}: duplicate diplomatic memory id ${memory.id}`);
+    memoryIds.add(memory.id);
+    invariant(world.countries.some((country) => country.id === memory.subjectId), `seed ${seed}: diplomatic memory subject missing`);
+    invariant(world.countries.some((country) => country.id === memory.counterpartId), `seed ${seed}: diplomatic memory counterpart missing`);
+    invariant(memory.subjectId !== memory.counterpartId, `seed ${seed}: diplomatic memory became self-referential`);
+    invariant(Number.isFinite(memory.severity) && memory.severity >= 0 && memory.severity <= 100, `seed ${seed}: diplomatic memory severity invalid`);
+    const salience = memorySalience(memory, world.week);
+    invariant(Number.isFinite(salience) && salience >= 0 && salience <= 100, `seed ${seed}: diplomatic memory salience invalid`);
+    if (memory.sourceType === "negotiation") invariant(Boolean(proposalById(world, memory.sourceId)), `seed ${seed}: negotiation memory source missing`);
+    if (memory.category === "lawful_withdrawal") lawfulWithdrawalMemories++;
+  }
+  invariant(
+    world.diplomaticMemories.length <= world.negotiations.length + world.treaties.length * 4 + world.treatyViolations.length + 50,
+    `seed ${seed}: diplomatic memory history exceeded modeled source growth`,
+  );
+
+  for (const violation of world.treatyViolations) {
+    invariant(
+      world.diplomaticMemories.some((memory) => memory.sourceId === violation.id && memory.category === "commitment_breached" && memory.subjectId === violation.violatorId),
+      `seed ${seed}: treaty violation ${violation.id} lacks breach memory`,
+    );
+    if (violation.deliberate) deliberateTreatyViolations++;
+  }
+
+  for (const observer of world.countries) {
+    for (const subject of world.countries) {
+      if (observer.id === subject.id) continue;
+      const credibility = getCredibility(world, observer.id, subject.id);
+      invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed}: credibility out of bounds for ${observer.id}/${subject.id}`);
+      minCredibility = Math.min(minCredibility, credibility);
+      maxCredibility = Math.max(maxCredibility, credibility);
+    }
+  }
+
+  diplomaticMemories += world.diplomaticMemories.length;
   fulfilledFixtureObligations += fixture.treaty.obligations.filter((obligation) => obligation.status === "fulfilled").length;
   treatyViolations += world.treatyViolations.length;
   negotiationsStarted += world.negotiations.length;
@@ -292,6 +335,11 @@ const summary = {
   treatyFixtures,
   fulfilledFixtureObligations,
   treatyViolations,
+  deliberateTreatyViolations,
+  diplomaticMemories,
+  lawfulWithdrawalMemories,
+  minCredibility,
+  maxCredibility,
   negotiationsStarted,
   acceptedNegotiations,
   rejectedNegotiations,
@@ -318,6 +366,10 @@ invariant(worldsWithAcceptedNegotiations >= SEEDS.length * 0.7, `only ${worldsWi
 invariant(acceptedNegotiations > SEEDS.length, `only ${acceptedNegotiations} autonomous negotiations reached agreement`);
 invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNegotiations}/${negotiationsStarted} autonomous negotiations were rejected; cabinet bargaining is too agreeable`);
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
+invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
+invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
+invariant(minCredibility < 45, `minimum credibility ${minCredibility} never reflected reputational damage`);
+invariant(maxCredibility > 55, `maximum credibility ${maxCredibility} never reflected honored commitments`);
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
 invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);
 invariant(upgradedRoutes > 0, "no infrastructure upgrades survived to the end of the stress worlds");

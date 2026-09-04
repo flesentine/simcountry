@@ -464,6 +464,31 @@ export function isNonAggressionActive(world: WorldState, a: string, b: string) {
   }
   return false;
 }
+export function breachNonAggressionForWar(world: WorldState, attackerId: string, defenderId: string) {
+  const messages: string[] = [];
+  for (const treaty of [...treatyCache(world).active]) {
+    if (pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(attackerId, defenderId)) continue;
+    const clause = treaty.clauses.find((candidate) => candidate.kind === "non_aggression" && candidate.status === "active");
+    if (!clause) continue;
+
+    treaty.status = "violated";
+    treaty.terminalReason = "material_breach";
+    for (const activeClause of treaty.clauses) {
+      if (activeClause.class !== "obligation" && activeClause.status === "active") activeClause.status = "violated";
+    }
+    addViolation(world, treaty, {
+      clauseId: clause.id,
+      violatorId: attackerId,
+      injuredPartyId: defenderId,
+      reason: "non_aggression_breach",
+      severity: 90,
+    });
+    syncTreatyCache(world, treaty);
+    messages.push(`${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`);
+  }
+  return messages;
+}
+
 
 function matchesResource(clauseResource: Resource | null, resource: Resource) {
   return clauseResource === null || clauseResource === resource;
@@ -639,6 +664,7 @@ export function processTreaties(world: WorldState) {
     const hasOngoingClauses = treaty.clauses.some((clause) => clause.class !== "obligation" && clause.status === "active");
     const obligationClauses = treaty.clauses.filter((clause) => clause.class === "obligation");
     const allObligationsFulfilled = obligationClauses.length > 0 && treaty.obligations.length === obligationClauses.length && treaty.obligations.every((obligation) => obligation.status === "fulfilled");
+    if (treaty.status === "expired" && allObligationsFulfilled) recordTreatyHonored(world, treaty);
     if (treaty.status === "active" && allObligationsFulfilled && !hasOngoingClauses && treaty.expiryWeek === null) {
       treaty.status = "fulfilled";
       treaty.terminalReason = "term_completed";

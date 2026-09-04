@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { DiplomaticMemory, TreatyDraft } from "../model/types";
 import {
   credibilityReputation,
+  ensureDiplomaticState,
   getCredibility,
   memorySalience,
   nonAggressionBreachPressure,
@@ -28,6 +29,38 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
     expect(getCredibility(world, b.id, a.id)).toBe(50);
     expect(a.relations[b.id]!.trust).not.toBe(getCredibility(world, a.id, b.id));
     expect(createInitialWorld(1978).diplomaticCredibility).toEqual(world.diplomaticCredibility);
+  });
+
+  test("restored worlds rebuild derived state and continue memory ids safely", () => {
+    const world = createInitialWorld(1978);
+    const a = world.countries[0]!;
+    const b = world.countries[1]!;
+    recordDiplomaticMemory(world, {
+      subjectId: a.id,
+      counterpartId: b.id,
+      category: "negotiation_rejected",
+      severity: 18,
+      sourceType: "negotiation",
+      sourceId: "proposal-restored-1",
+      description: "First restored memory.",
+    });
+
+    const restored = JSON.parse(JSON.stringify(world)) as ReturnType<typeof createInitialWorld>;
+    delete (restored as Partial<typeof restored>).nextDiplomaticMemoryId;
+    ensureDiplomaticState(restored);
+    const memory = recordDiplomaticMemory(restored, {
+      subjectId: b.id,
+      counterpartId: a.id,
+      category: "negotiation_rejected",
+      severity: 18,
+      sourceType: "negotiation",
+      sourceId: "proposal-restored-2",
+      description: "Second restored memory.",
+    });
+
+    expect(memory?.id).toBe("memory-2");
+    expect(restored.diplomaticMemories.map((entry) => entry.id)).toEqual(["memory-1", "memory-2"]);
+    expect(getCredibility(restored, a.id, b.id)).toBe(50);
   });
 
   test("a deliberate non-aggression breach creates one authoritative violation and damages public credibility", () => {

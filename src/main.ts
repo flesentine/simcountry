@@ -23,6 +23,12 @@ const atWar = (country: Country) => world.wars.some((war) => war.a === country.i
 const countryById = (id: string) => world.countries.find((country) => country.id === id);
 const cityById = (id: string) => world.geography.cities.find((city) => city.id === id);
 const systemLabel = (system: string) => system.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
+const escapeHtml = (value: string) => value
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
 
 function eventIcon(event: WorldEvent) {
   return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", diplomacy: "◇", world: "◎" } as const)[event.kind];
@@ -159,7 +165,7 @@ function renderTreaties(selected: Country) {
         const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
         const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
         const timing = treaty.expiryWeek === null ? "open-ended" : `expires ${weekLabel(treaty.expiryWeek)}`;
-        return `<div><span>${treaty.title}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
+        return `<div><span>${escapeHtml(treaty.title)}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
       }).join("") : "<p>No treaty commitments yet.</p>"}
     </div>`;
 }
@@ -184,7 +190,7 @@ function renderNegotiations(selected: Country) {
         const displayedDecision = selectedEvaluation?.decision === "counter" && current?.status === "rejected" ? "counter attempt" : selectedEvaluation?.decision;
         const score = selectedEvaluation ? ` · cabinet ${displayedDecision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
         const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
-        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
+        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${escapeHtml(current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed")}</small></div>`;
       }).join("") : "<p>No diplomatic talks yet.</p>"}
     </div>`;
 }
@@ -206,7 +212,7 @@ function renderDiplomaticMemory(selected: Country) {
         const heading = memory.subjectId === selected.id
           ? `${systemLabel(memory.category)} with ${counterpart}`
           : `${subject}: ${systemLabel(memory.category)}`;
-        return `<div><span>${heading}</span><small>${weekLabel(memory.week)} · salience ${fmt(salience, 1)}</small><small>${memory.description}</small></div>`;
+        return `<div><span>${heading}</span><small>${weekLabel(memory.week)} · salience ${fmt(salience, 1)}</small><small>${escapeHtml(memory.description)}</small></div>`;
       }).join("") : "<p>No durable diplomatic memories yet.</p>"}
     </div>`;
 }
@@ -297,7 +303,7 @@ function render() {
           <div class="panel-heading"><h2>World history</h2><span>${world.events.length} total · latest 40</span></div>
           <div class="event-list" aria-live="polite">
             ${world.events.slice(0, 40).map((event) => `
-              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${event.text}</p></div></article>
+              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${escapeHtml(event.text)}</p></div></article>
             `).join("")}
           </div>
         </section>

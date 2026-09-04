@@ -2,6 +2,7 @@ import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite 
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
+import { ensureDiplomaticState } from "./diplomacy";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
@@ -82,6 +83,7 @@ export function createInitialWorld(seed = 1978): WorldState {
     nextTreatyId: 1,
     nextNegotiationId: 1,
     nextProposalId: 1,
+    nextDiplomaticMemoryId: 1,
     countries,
     geography,
     wars: [],
@@ -90,8 +92,11 @@ export function createInitialWorld(seed = 1978): WorldState {
     treatyViolations: [],
     negotiations: [],
     proposals: [],
+    diplomaticMemories: [],
+    diplomaticCredibility: {},
     events: [],
   };
+  ensureDiplomaticState(world);
   const landCells = geography.cells.filter((cell) => cell.land).length;
   const ports = geography.cities.filter((city) => city.port).length;
   const chokepoints = geography.routes.filter((route) => route.chokepoint).length;
@@ -386,6 +391,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 
 export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
+  ensureDiplomaticState(world);
   expireTruces(world);
   resetRouteUsage(world);
   resetTreatyWeeklyUsage(world);

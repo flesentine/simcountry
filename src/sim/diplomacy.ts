@@ -16,7 +16,10 @@ type DiplomaticMemoryCache = {
 };
 
 const MEMORY_CACHE = new WeakMap<WorldState, DiplomaticMemoryCache>();
-const DIPLOMATIC_STATE_SIGNATURE = new WeakMap<WorldState, string>();
+// Country membership is fixed for a WorldState in the current simulation.
+// A WeakSet gives hot credibility reads an O(1) readiness check while cloned /
+// restored worlds naturally miss the cache and rebuild their derived state.
+const DIPLOMATIC_STATE_READY = new WeakSet<WorldState>();
 
 function memoryKey(memory: Pick<DiplomaticMemory, "sourceType" | "sourceId" | "category" | "subjectId" | "counterpartId">) {
   return `${memory.sourceType}|${memory.sourceId}|${memory.category}|${memory.subjectId}|${memory.counterpartId}`;
@@ -60,9 +63,8 @@ function countryById(world: WorldState, id: string) {
 }
 
 export function ensureDiplomaticState(world: WorldState) {
-  const signature = world.countries.map((country) => country.id).sort().join("|");
   if (
-    DIPLOMATIC_STATE_SIGNATURE.get(world) === signature
+    DIPLOMATIC_STATE_READY.has(world)
     && world.nextDiplomaticMemoryId !== undefined
     && world.diplomaticMemories !== undefined
     && world.diplomaticCredibility !== undefined
@@ -88,10 +90,12 @@ export function ensureDiplomaticState(world: WorldState) {
       };
     }
   }
-  DIPLOMATIC_STATE_SIGNATURE.set(world, signature);
+  DIPLOMATIC_STATE_READY.add(world);
 }
 
 function standing(world: WorldState, observerId: string, subjectId: string): DiplomaticCredibility {
+  const existing = world.diplomaticCredibility?.[observerId]?.[subjectId];
+  if (existing) return existing;
   ensureDiplomaticState(world);
   const observer = world.diplomaticCredibility[observerId] ?? (world.diplomaticCredibility[observerId] = {});
   return observer[subjectId] ?? (observer[subjectId] = {

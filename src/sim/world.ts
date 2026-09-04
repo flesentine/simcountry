@@ -2,12 +2,12 @@ import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite 
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
-import { ensureDiplomaticState } from "./diplomacy";
+import { ensureDiplomaticState, nonAggressionBreachPressure } from "./diplomacy";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
-import { getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, resetTreatyWeeklyUsage } from "./treaties";
+import { breachNonAggressionForWar, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, resetTreatyWeeklyUsage } from "./treaties";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -276,8 +276,19 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (countryAtWar(world, attacker.id)) continue;
     const targets = world.countries
-      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && !isNonAggressionActive(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
-      .map((defender) => ({ defender, appetite: warAppetite(attacker, defender) }))
+      .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
+      .map((defender) => {
+        const nonAggression = isNonAggressionActive(world, attacker.id, defender.id);
+        const breachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
+        const breachFactor = nonAggression ? clamp((breachPressure - 52) / 48, 0.12, 0.72) : 1;
+        return {
+          defender,
+          nonAggression,
+          breachPressure,
+          appetite: warAppetite(attacker, defender) * breachFactor,
+        };
+      })
+      .filter((candidate) => !candidate.nonAggression || candidate.breachPressure >= 68)
       .sort((a, b) => b.appetite - a.appetite);
 
     const best = targets[0];
@@ -285,6 +296,9 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
     if (rng.next() > best.appetite * 0.035) continue;
 
     const defender = best.defender;
+    if (best.nonAggression) {
+      for (const message of breachNonAggressionForWar(world, attacker.id, defender.id)) addEvent(world, "diplomacy", message);
+    }
     const relationA = attacker.relations[defender.id]!;
     const relationB = defender.relations[attacker.id]!;
     relationA.tension = relationB.tension = 100;

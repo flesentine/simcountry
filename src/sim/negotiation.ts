@@ -543,13 +543,17 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
   if (evaluation.decision === "counter" && proposal.round < negotiation.maxRounds) {
     const counterDraft = makeCounterDraft(world, proposal, recipient);
     if (counterDraft) {
-      proposal.status = "countered";
-      proposal.decisionReason = `cabinet countered at ${evaluation.totalScore}/${evaluation.threshold}`;
       const counter = createProposal(world, negotiation, recipient, proposer, proposal.motive, counterDraft, proposal.round + 1, proposal.id);
       if (counter) {
+        proposal.status = "countered";
+        proposal.decisionReason = `cabinet countered at ${evaluation.totalScore}/${evaluation.threshold}`;
         return `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.`;
       }
     }
+    proposal.status = "rejected";
+    proposal.decisionReason = `counter authorization failed after cabinet sought revision at ${evaluation.totalScore}/${evaluation.threshold}`;
+    terminalize(negotiation, "rejected", world, proposal.decisionReason);
+    return `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.`;
   }
 
   proposal.status = "rejected";

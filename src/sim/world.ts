@@ -2,12 +2,12 @@ import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite 
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
-import { ensureDiplomaticState, nonAggressionBreachPressure } from "./diplomacy";
+import { ensureDiplomaticState, getCredibility, nonAggressionBreachPressure } from "./diplomacy";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
-import { breachNonAggressionForWar, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, resetTreatyWeeklyUsage } from "./treaties";
+import { breachNonAggressionForWar, getActiveTreaties, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, requestTreatyWithdrawal, resetTreatyWeeklyUsage } from "./treaties";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -272,6 +272,45 @@ function enforceStateBounds(world: WorldState) {
   }
 }
 
+function considerTreatyWithdrawals(world: WorldState, rng: ReturnType<typeof createRng>) {
+  const messages: string[] = [];
+  if (world.week % 13 !== 0) return messages;
+
+  for (const country of world.countries) {
+    const active = getActiveTreaties(world, country.id)
+      .filter((treaty) => treaty.withdrawalRequestedBy === null)
+      .sort((a, b) => a.signedWeek - b.signedWeek);
+    for (const treaty of active) {
+      const counterpartId = treaty.parties.find((id) => id !== country.id);
+      if (!counterpartId) continue;
+      const counterpart = world.countries.find((candidate) => candidate.id === counterpartId);
+      const relation = country.relations[counterpartId];
+      if (!counterpart || !relation) continue;
+
+      const credibility = getCredibility(world, country.id, counterpartId);
+      const pressure = clamp(
+        (50 - credibility) * 0.62
+          + relation.tension * 0.30
+          + country.policy.expansionism * 0.08
+          - country.policy.diplomacy * 0.13
+          - country.government.agenda.diplomaticEngagement * 0.11,
+        0,
+        100,
+      );
+      if (credibility >= 32 || pressure < 28) continue;
+      const chance = clamp((pressure - 24) / 180, 0.015, 0.11);
+      if (rng.next() > chance) continue;
+
+      const result = requestTreatyWithdrawal(world, treaty.id, country.id);
+      if (result.ok) {
+        messages.push(`${country.name} gives lawful withdrawal notice from ${treaty.title} after confidence in ${counterpart.name}'s reliability falls to ${Math.round(credibility)}.`);
+        break;
+      }
+    }
+  }
+  return messages;
+}
+
 function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
   for (const attacker of world.countries) {
     if (countryAtWar(world, attacker.id)) continue;
@@ -413,6 +452,7 @@ export function tickWeek(world: WorldState): WorldState {
 
   for (const message of processTreaties(world)) addEvent(world, "diplomacy", message);
   for (const message of runGovernments(world, rng)) addEvent(world, "politics", message);
+  for (const message of considerTreatyWithdrawals(world, rng)) addEvent(world, "diplomacy", message);
   for (const message of processNegotiations(world, rng)) addEvent(world, "diplomacy", message);
   runEconomy(world, rng);
 

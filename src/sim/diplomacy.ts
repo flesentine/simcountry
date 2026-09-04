@@ -225,10 +225,11 @@ export function nonAggressionBreachPressure(world: WorldState, attacker: Country
 export function credibilitySummaryFor(country: Country, world: WorldState) {
   const reputation = credibilityReputation(world, country.id);
   const memories = recentDiplomaticMemories(world, country.id);
+  const subjectMemories = world.diplomaticMemories.filter((memory) => memory.subjectId === country.id);
   return {
     reputation,
-    breaches: memories.filter((entry) => entry.memory.subjectId === country.id && entry.memory.category === "commitment_breached").length,
-    honored: memories.filter((entry) => entry.memory.subjectId === country.id && entry.memory.category === "commitment_honored").length,
+    breaches: subjectMemories.filter((memory) => memory.category === "commitment_breached").length,
+    honored: subjectMemories.filter((memory) => memory.category === "commitment_honored").length,
     memories,
   };
 }

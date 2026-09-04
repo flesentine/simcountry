@@ -224,6 +224,28 @@ export function credibilityReputation(world: WorldState, subjectId: string) {
   return observers.reduce((sum, observer) => sum + getCredibility(world, observer.id, subjectId), 0) / observers.length;
 }
 
+export function treatyWithdrawalDecision(world: WorldState, country: Country, counterpart: Country) {
+  const credibility = getCredibility(world, country.id, counterpart.id);
+  const relation = country.relations[counterpart.id];
+  const reliabilityLoss = Math.max(0, CREDIBILITY_BASELINE - credibility);
+  const pressure = clamp(
+    reliabilityLoss
+      + (relation?.tension ?? 50) * 0.24
+      + country.policy.expansionism * 0.07
+      - country.policy.diplomacy * 0.10
+      - country.government.agenda.diplomaticEngagement * 0.08,
+  );
+
+  // A single maximum-severity breach can only push an uninvolved observer from
+  // baseline 50 to 38. The old <32 cutoff therefore ignored a severe public
+  // credibility shock unless the observer was also the directly injured party.
+  // Keep baseline relationships ineligible, but let genuinely damaged public
+  // credibility become actionable for sufficiently concerned governments.
+  const eligible = credibility < 42 && pressure >= 10;
+  const chance = eligible ? clamp((pressure - 8) / 220, 0.012, 0.10) : 0;
+  return { credibility, pressure, chance, eligible };
+}
+
 export function obligationRefusalPressure(world: WorldState, payer: Country, payee: Country) {
   const relation = payer.relations[payee.id];
   const reputation = credibilityReputation(world, payer.id);

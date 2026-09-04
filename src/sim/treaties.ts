@@ -1,4 +1,4 @@
-import { recordDiplomaticMemory } from "./diplomacy";
+import { obligationRefusalPressure, recordDiplomaticMemory } from "./diplomacy";
 import type {
   Country,
   LoanClause,
@@ -532,6 +532,7 @@ function recordObligationViolation(world: WorldState, treaty: Treaty, obligation
     injuredPartyId: obligation.payeeId,
     reason,
     severity: Math.min(100, 35 + obligation.missedPayments * 18),
+    deliberate: reason === "deliberate_refusal",
   });
 }
 
@@ -552,7 +553,8 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
 
   const due = Math.min(obligation.installment, obligation.remainingAmount);
   const debtHeadroom = Math.max(0, payer.treasury + payer.population * 5);
-  const paid = round(Math.min(due, debtHeadroom));
+  const deliberateRefusal = debtHeadroom + 0.0001 >= due && obligationRefusalPressure(world, payer, payee) >= 72;
+  const paid = deliberateRefusal ? 0 : round(Math.min(due, debtHeadroom));
   if (paid > 0) {
     payer.treasury -= paid;
     payee.treasury += paid;
@@ -562,7 +564,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
 
   if (paid + 0.0001 < due) {
     obligation.missedPayments += 1;
-    obligation.failureReason = "insufficient_treasury";
+    obligation.failureReason = deliberateRefusal ? "deliberate_refusal" : "insufficient_treasury";
     if (obligation.missedPayments >= 3) {
       obligation.status = "defaulted";
       if (treaty.status === "active") {
@@ -571,7 +573,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
       }
       const clause = treaty.clauses.find((candidate) => candidate.id === obligation.clauseId);
       if (clause) clause.status = "violated";
-      recordObligationViolation(world, treaty, obligation, "insufficient_treasury");
+      recordObligationViolation(world, treaty, obligation, obligation.failureReason ?? "insufficient_treasury");
     }
   } else {
     obligation.failureReason = null;

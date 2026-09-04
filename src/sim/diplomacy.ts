@@ -10,6 +10,36 @@ import type {
 const CREDIBILITY_BASELINE = 50;
 const CREDIBILITY_HALF_LIFE_WEEKS = 520;
 
+type DiplomaticMemoryCache = {
+  observedLength: number;
+  keys: Set<string>;
+};
+
+const MEMORY_CACHE = new WeakMap<WorldState, DiplomaticMemoryCache>();
+
+function memoryKey(memory: Pick<DiplomaticMemory, "sourceType" | "sourceId" | "category" | "subjectId" | "counterpartId">) {
+  return `${memory.sourceType}|${memory.sourceId}|${memory.category}|${memory.subjectId}|${memory.counterpartId}`;
+}
+
+function diplomaticMemoryCache(world: WorldState) {
+  let cache = MEMORY_CACHE.get(world);
+  if (!cache || cache.observedLength > world.diplomaticMemories.length) {
+    cache = {
+      observedLength: world.diplomaticMemories.length,
+      keys: new Set(world.diplomaticMemories.map(memoryKey)),
+    };
+    MEMORY_CACHE.set(world, cache);
+    return cache;
+  }
+  if (cache.observedLength < world.diplomaticMemories.length) {
+    for (let index = cache.observedLength; index < world.diplomaticMemories.length; index++) {
+      cache.keys.add(memoryKey(world.diplomaticMemories[index]!));
+    }
+    cache.observedLength = world.diplomaticMemories.length;
+  }
+  return cache;
+}
+
 const MEMORY_HALF_LIFE_WEEKS: Record<DiplomaticMemoryCategory, number> = {
   agreement_signed: 104,
   commitment_honored: 260,
@@ -120,13 +150,9 @@ export function recordDiplomaticMemory(
   },
 ) {
   ensureDiplomaticState(world);
-  if (world.diplomaticMemories.some((memory) =>
-    memory.sourceType === event.sourceType
-    && memory.sourceId === event.sourceId
-    && memory.category === event.category
-    && memory.subjectId === event.subjectId
-    && memory.counterpartId === event.counterpartId
-  )) return null;
+  const cache = diplomaticMemoryCache(world);
+  const key = memoryKey(event);
+  if (cache.keys.has(key)) return null;
 
   const memory: DiplomaticMemory = {
     id: `memory-${world.nextDiplomaticMemoryId}`,
@@ -141,6 +167,8 @@ export function recordDiplomaticMemory(
   };
   world.nextDiplomaticMemoryId += 1;
   world.diplomaticMemories.push(memory);
+  cache.keys.add(key);
+  cache.observedLength = world.diplomaticMemories.length;
 
   for (const observer of world.countries) {
     if (observer.id === event.subjectId) continue;

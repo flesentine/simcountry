@@ -1,6 +1,7 @@
 import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
+import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { negotiationSummaryFor } from "./sim/negotiation";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
@@ -188,6 +189,28 @@ function renderNegotiations(selected: Country) {
     </div>`;
 }
 
+function renderDiplomaticMemory(selected: Country) {
+  const summary = credibilitySummaryFor(selected, world);
+  return `
+    <h3>Diplomatic credibility & memory</h3>
+    <div class="profile-grid">
+      <span>Reputation <b>${fmt(summary.reputation, 1)}</b></span>
+      <span>Breaches <b>${summary.breaches}</b></span>
+      <span>Honored commitments <b>${summary.honored}</b></span>
+      <span>Memories <b>${world.diplomaticMemories.filter((memory) => memory.subjectId === selected.id || memory.counterpartId === selected.id).length}</b></span>
+    </div>
+    <div class="relations diplomatic-memory-list">
+      ${summary.memories.length ? summary.memories.map(({ memory, salience }) => {
+        const counterpart = countryById(memory.counterpartId)?.name ?? memory.counterpartId;
+        const subject = countryById(memory.subjectId)?.name ?? memory.subjectId;
+        const heading = memory.subjectId === selected.id
+          ? `${systemLabel(memory.category)} with ${counterpart}`
+          : `${subject}: ${systemLabel(memory.category)}`;
+        return `<div><span>${heading}</span><small>${weekLabel(memory.week)} · salience ${fmt(salience, 1)}</small><small>${memory.description}</small></div>`;
+      }).join("") : "<p>No durable diplomatic memories yet.</p>"}
+    </div>`;
+}
+
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
@@ -258,13 +281,14 @@ function render() {
           ${renderGovernment(selected)}
           ${renderTreaties(selected)}
           ${renderNegotiations(selected)}
+          ${renderDiplomaticMemory(selected)}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
               const r = selected.relations[other.id]!;
               const truce = getActiveTruce(world, selected.id, other.id);
               const access = world.geography.adjacency[selected.id]?.includes(other.id) ? "land" : world.geography.routes.some((route) => route.mode === "sea" && ((route.a === selected.id && route.b === other.id) || (route.b === selected.id && route.a === other.id))) ? "sea" : "none";
-              return `<div><span>${other.name}</span><small>${access} access · trust ${fmt(r.trust)} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
+              return `<div><span>${other.name}</span><small>${access} access · trust ${fmt(r.trust)} · credibility ${fmt(getCredibility(world, selected.id, other.id))} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
             }).join("")}
           </div>
         </section>

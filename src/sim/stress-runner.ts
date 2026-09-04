@@ -1,4 +1,5 @@
-import { isNonAggressionActive, registerTreaty } from "./treaties";
+import { diplomaticBandwidth } from "./negotiation";
+import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
 
 const YEARS = 500;
@@ -13,13 +14,29 @@ function invariant(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function proposalById(world: ReturnType<typeof createInitialWorld>, id: string | null) {
+  if (!id) return undefined;
+  const numeric = Number(id.startsWith("proposal-") ? id.slice("proposal-".length) : NaN);
+  if (Number.isInteger(numeric) && numeric > 0 && world.proposals[numeric - 1]?.id === id) return world.proposals[numeric - 1];
+  return world.proposals.find((proposal) => proposal.id === id);
+}
+
 let totalFloorCountries = 0;
 let worldsAtMilitaryFloor = 0;
 let upgradedRoutes = 0;
 let finalChokepoints = 0;
 let treatyFixtures = 0;
-let fulfilledTreatyObligations = 0;
+let fulfilledFixtureObligations = 0;
 let treatyViolations = 0;
+let negotiationsStarted = 0;
+let acceptedNegotiations = 0;
+let rejectedNegotiations = 0;
+let counterProposals = 0;
+let worldsWithNegotiations = 0;
+let worldsWithAcceptedNegotiations = 0;
+let maxNegotiationsPerWorld = 0;
+let maxProposalsPerWorld = 0;
+let maxTreatiesPerWorld = 0;
 const finalReadiness: number[] = [];
 const finalTension: number[] = [];
 const finalTreasuries: number[] = [];
@@ -75,31 +92,36 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       if (route.blockedBy) invariant(world.countries.some((country) => country.id === route.blockedBy), `seed ${seed} week ${world.week}: invalid blockading country`);
     }
 
-    const treatyIds = new Set<string>();
-    for (const treaty of world.treaties) {
-      invariant(!treatyIds.has(treaty.id), `seed ${seed} week ${world.week}: duplicate treaty id ${treaty.id}`);
-      treatyIds.add(treaty.id);
-      invariant(treaty.parties.length === 2 && treaty.parties[0] !== treaty.parties[1], `seed ${seed} week ${world.week}: invalid treaty parties`);
-      invariant(treaty.parties.every((id) => world.countries.some((country) => country.id === id)), `seed ${seed} week ${world.week}: treaty references missing country`);
-      invariant(treaty.status !== "pending" || world.week < treaty.effectiveWeek, `seed ${seed} week ${world.week}: treaty stuck pending after effective date`);
-      invariant(treaty.status !== "active" || treaty.expiryWeek === null || world.week < treaty.expiryWeek, `seed ${seed} week ${world.week}: active treaty passed expiry`);
-      invariant(treaty.withdrawalEffectiveWeek === null || treaty.status !== "active" || world.week < treaty.withdrawalEffectiveWeek, `seed ${seed} week ${world.week}: active treaty passed withdrawal date`);
-      const clauseIds = new Set<string>();
+    const activeTreaties = getActiveTreaties(world);
+    invariant(activeTreaties.length < 64, `seed ${seed} week ${world.week}: active treaty state exploded`);
+    for (const treaty of activeTreaties) {
+      invariant(treaty.expiryWeek === null || world.week < treaty.expiryWeek, `seed ${seed} week ${world.week}: active treaty passed expiry`);
+      invariant(treaty.withdrawalEffectiveWeek === null || world.week < treaty.withdrawalEffectiveWeek, `seed ${seed} week ${world.week}: active treaty passed withdrawal date`);
       for (const clause of treaty.clauses) {
-        invariant(!clauseIds.has(clause.id), `seed ${seed} week ${world.week}: duplicate treaty clause id ${clause.id}`);
-        clauseIds.add(clause.id);
         if (clause.kind === "quota") invariant(clause.usedThisWeek >= 0 && clause.usedThisWeek <= clause.maxUnitsPerWeek + 0.0001, `seed ${seed} week ${world.week}: treaty quota exceeded`);
       }
-      for (const obligation of treaty.obligations) {
-        invariant(Number.isFinite(obligation.totalAmount) && obligation.totalAmount > 0, `seed ${seed} week ${world.week}: invalid treaty obligation total`);
-        invariant(obligation.paidAmount >= 0 && obligation.remainingAmount >= 0, `seed ${seed} week ${world.week}: negative treaty obligation balance`);
-        invariant(Math.abs(obligation.paidAmount + obligation.remainingAmount - obligation.totalAmount) <= 0.011, `seed ${seed} week ${world.week}: treaty obligation does not reconcile`);
-        invariant(world.countries.some((country) => country.id === obligation.payerId), `seed ${seed} week ${world.week}: obligation payer missing`);
-        invariant(world.countries.some((country) => country.id === obligation.payeeId), `seed ${seed} week ${world.week}: obligation payee missing`);
-      }
-      for (const amount of Object.values(treaty.treasuryEscrow)) invariant(Number.isFinite(amount) && amount >= -0.0001, `seed ${seed} week ${world.week}: invalid treaty escrow`);
     }
-    invariant(world.treaties.length < 32, `seed ${seed} week ${world.week}: treaty count exploded`);
+    for (const treaty of world.treaties.slice(-64)) {
+      invariant(treaty.status !== "pending" || world.week < treaty.effectiveWeek, `seed ${seed} week ${world.week}: treaty stuck pending after effective date`);
+    }
+
+    const openNegotiations = world.negotiations.slice(-128).filter((negotiation) => negotiation.status === "open");
+    const openPairs = new Set<string>();
+    const openCounts = new Map<string, number>();
+    for (const negotiation of openNegotiations) {
+      const key = [...negotiation.parties].sort().join("|");
+      invariant(!openPairs.has(key), `seed ${seed} week ${world.week}: duplicate open negotiation pair ${key}`);
+      openPairs.add(key);
+      const current = proposalById(world, negotiation.currentProposalId);
+      invariant(Boolean(current), `seed ${seed} week ${world.week}: open negotiation ${negotiation.id} lost its proposal`);
+      invariant(current!.status === "pending", `seed ${seed} week ${world.week}: open negotiation ${negotiation.id} has non-pending current proposal`);
+      invariant(current!.round >= 1 && current!.round <= negotiation.maxRounds && negotiation.maxRounds <= 3, `seed ${seed} week ${world.week}: negotiation round escaped bounds`);
+      invariant(world.week <= current!.expiresWeek, `seed ${seed} week ${world.week}: open proposal remained past expiry`);
+      for (const partyId of negotiation.parties) openCounts.set(partyId, (openCounts.get(partyId) ?? 0) + 1);
+    }
+    for (const country of world.countries) {
+      invariant((openCounts.get(country.id) ?? 0) <= diplomaticBandwidth(country), `seed ${seed} week ${world.week}: ${country.name} exceeded diplomatic bandwidth`);
+    }
 
     for (const country of world.countries) {
       const government = country.government;
@@ -112,8 +134,73 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     }
   }
 
-  fulfilledTreatyObligations += world.treaties.flatMap((treaty) => treaty.obligations).filter((obligation) => obligation.status === "fulfilled").length;
+  const treatyIds = new Set<string>();
+  for (const treaty of world.treaties) {
+    invariant(!treatyIds.has(treaty.id), `seed ${seed}: duplicate treaty id ${treaty.id}`);
+    treatyIds.add(treaty.id);
+    invariant(treaty.parties.length === 2 && treaty.parties[0] !== treaty.parties[1], `seed ${seed}: invalid treaty parties`);
+    invariant(treaty.parties.every((id) => world.countries.some((country) => country.id === id)), `seed ${seed}: treaty references missing country`);
+    const clauseIds = new Set<string>();
+    for (const clause of treaty.clauses) {
+      invariant(!clauseIds.has(clause.id), `seed ${seed}: duplicate treaty clause id ${clause.id}`);
+      clauseIds.add(clause.id);
+      if (clause.kind === "quota") invariant(clause.usedThisWeek >= 0 && clause.usedThisWeek <= clause.maxUnitsPerWeek + 0.0001, `seed ${seed}: treaty quota exceeded`);
+    }
+    for (const obligation of treaty.obligations) {
+      invariant(Number.isFinite(obligation.totalAmount) && obligation.totalAmount > 0, `seed ${seed}: invalid treaty obligation total`);
+      invariant(obligation.paidAmount >= 0 && obligation.remainingAmount >= 0, `seed ${seed}: negative treaty obligation balance`);
+      invariant(Math.abs(obligation.paidAmount + obligation.remainingAmount - obligation.totalAmount) <= 0.011, `seed ${seed}: treaty obligation does not reconcile`);
+      invariant(world.countries.some((country) => country.id === obligation.payerId), `seed ${seed}: obligation payer missing`);
+      invariant(world.countries.some((country) => country.id === obligation.payeeId), `seed ${seed}: obligation payee missing`);
+    }
+    for (const amount of Object.values(treaty.treasuryEscrow)) invariant(Number.isFinite(amount) && amount >= -0.0001, `seed ${seed}: invalid treaty escrow`);
+  }
+  invariant(world.treaties.length <= 4_001, `seed ${seed}: treaty history exceeded the theoretical negotiation pace`);
+
+  const negotiationIds = new Set<string>();
+  for (const negotiation of world.negotiations) {
+    invariant(!negotiationIds.has(negotiation.id), `seed ${seed}: duplicate negotiation id ${negotiation.id}`);
+    negotiationIds.add(negotiation.id);
+    invariant(negotiation.parties.length === 2 && negotiation.parties[0] !== negotiation.parties[1], `seed ${seed}: invalid negotiation parties`);
+    invariant(negotiation.proposalIds.length >= 1 && negotiation.proposalIds.length <= negotiation.maxRounds && negotiation.maxRounds === 3, `seed ${seed}: negotiation proposal chain invalid`);
+    invariant(negotiation.proposalIds.every((id) => Boolean(proposalById(world, id))), `seed ${seed}: negotiation references missing proposal`);
+    if (negotiation.status === "accepted") {
+      invariant(Boolean(negotiation.outcomeTreatyId), `seed ${seed}: accepted negotiation missing treaty id`);
+      invariant(world.treaties.some((treaty) => treaty.id === negotiation.outcomeTreatyId), `seed ${seed}: accepted negotiation references missing treaty`);
+    }
+    if (negotiation.status !== "open") invariant(negotiation.cooldownUntilWeek >= negotiation.lastActionWeek, `seed ${seed}: terminal negotiation has invalid cooldown`);
+  }
+
+  const proposalIds = new Set<string>();
+  for (const proposal of world.proposals) {
+    invariant(!proposalIds.has(proposal.id), `seed ${seed}: duplicate proposal id ${proposal.id}`);
+    proposalIds.add(proposal.id);
+    invariant(proposal.round >= 1 && proposal.round <= 3, `seed ${seed}: proposal round invalid`);
+    invariant(proposal.proposerId !== proposal.recipientId, `seed ${seed}: proposal has same proposer and recipient`);
+    invariant(proposal.draft.parties.includes(proposal.proposerId) && proposal.draft.parties.includes(proposal.recipientId), `seed ${seed}: proposal parties diverged from negotiation actors`);
+    if (proposal.responseToProposalId) invariant(Boolean(proposalById(world, proposal.responseToProposalId)), `seed ${seed}: proposal response chain is broken`);
+    invariant(proposal.evaluations.length >= 1 && proposal.evaluations.length <= 2, `seed ${seed}: proposal evaluation count invalid`);
+    for (const evaluation of proposal.evaluations) {
+      invariant(Number.isFinite(evaluation.totalScore) && evaluation.totalScore >= 0 && evaluation.totalScore <= 100, `seed ${seed}: cabinet score invalid`);
+      invariant(Number.isFinite(evaluation.threshold) && evaluation.threshold >= 0 && evaluation.threshold <= 100, `seed ${seed}: cabinet threshold invalid`);
+      invariant(evaluation.components.length === 6, `seed ${seed}: cabinet evaluation lost institutional components`);
+      invariant(evaluation.components.every((component) => Number.isFinite(component.score) && component.score >= 0 && component.score <= 100 && Number.isFinite(component.weight) && component.weight > 0), `seed ${seed}: cabinet component invalid`);
+    }
+  }
+  invariant(world.negotiations.length <= 4_000, `seed ${seed}: negotiation history exceeded two openings per quarter`);
+  invariant(world.proposals.length <= 12_000, `seed ${seed}: proposal history exceeded three rounds per negotiation`);
+
+  fulfilledFixtureObligations += fixture.treaty.obligations.filter((obligation) => obligation.status === "fulfilled").length;
   treatyViolations += world.treatyViolations.length;
+  negotiationsStarted += world.negotiations.length;
+  acceptedNegotiations += world.negotiations.filter((negotiation) => negotiation.status === "accepted").length;
+  rejectedNegotiations += world.negotiations.filter((negotiation) => negotiation.status === "rejected").length;
+  counterProposals += world.proposals.filter((proposal) => proposal.round > 1).length;
+  if (world.negotiations.length > 0) worldsWithNegotiations++;
+  if (world.negotiations.some((negotiation) => negotiation.status === "accepted")) worldsWithAcceptedNegotiations++;
+  maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);
+  maxProposalsPerWorld = Math.max(maxProposalsPerWorld, world.proposals.length);
+  maxTreatiesPerWorld = Math.max(maxTreatiesPerWorld, world.treaties.length);
 
   let floorCountries = 0;
   for (const country of world.countries) {
@@ -203,8 +290,17 @@ const summary = {
   upgradedRoutes,
   finalChokepoints,
   treatyFixtures,
-  fulfilledTreatyObligations,
+  fulfilledFixtureObligations,
   treatyViolations,
+  negotiationsStarted,
+  acceptedNegotiations,
+  rejectedNegotiations,
+  counterProposals,
+  worldsWithNegotiations,
+  worldsWithAcceptedNegotiations,
+  maxNegotiationsPerWorld,
+  maxProposalsPerWorld,
+  maxTreatiesPerWorld,
   avgReadiness,
   avgTension,
   maxTreasury,
@@ -216,7 +312,12 @@ const summary = {
 
 invariant(finalReadiness.length === SEEDS.length * 8, "stress gate did not evaluate all countries");
 invariant(treatyFixtures === SEEDS.length, "treaty fixture did not register in every stress world");
-invariant(fulfilledTreatyObligations >= SEEDS.length * 0.9, `only ${fulfilledTreatyObligations} treaty obligations fulfilled`);
+invariant(fulfilledFixtureObligations >= SEEDS.length * 0.9, `only ${fulfilledFixtureObligations} fixture obligations fulfilled`);
+invariant(worldsWithNegotiations >= SEEDS.length * 0.9, `only ${worldsWithNegotiations} worlds generated autonomous diplomacy`);
+invariant(worldsWithAcceptedNegotiations >= SEEDS.length * 0.7, `only ${worldsWithAcceptedNegotiations} worlds signed autonomous agreements`);
+invariant(acceptedNegotiations > SEEDS.length, `only ${acceptedNegotiations} autonomous negotiations reached agreement`);
+invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNegotiations}/${negotiationsStarted} autonomous negotiations were rejected; cabinet bargaining is too agreeable`);
+invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
 invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);
 invariant(upgradedRoutes > 0, "no infrastructure upgrades survived to the end of the stress worlds");

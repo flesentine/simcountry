@@ -11,28 +11,14 @@ import type {
   TariffClause,
   Treaty,
   TreatyClause,
+  TreatyClauseDraft,
+  TreatyDraft,
   TreatyObligation,
   TreatyViolation,
   WorldState,
 } from "../model/types";
 
-export type TreatyClauseDraft =
-  | { kind: "preferential_trade"; grantorId: string; beneficiaryId: string; discountPct: number; resource?: Resource | null }
-  | { kind: "tariff"; importerId: string; exporterId: string; ratePct: number; resource?: Resource | null }
-  | { kind: "quota"; exporterId: string; importerId: string; resource: Resource; maxUnitsPerWeek: number }
-  | { kind: "non_aggression" }
-  | { kind: "sanction"; imposerId: string; targetId: string; resource?: Resource | null }
-  | { kind: "loan"; creditorId: string; debtorId: string; principal: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number }
-  | { kind: "reparations"; payerId: string; payeeId: string; totalAmount: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number };
-
-export interface TreatyDraft {
-  title: string;
-  parties: [string, string];
-  effectiveWeek?: number;
-  expiryWeek?: number | null;
-  withdrawalNoticeWeeks?: number;
-  clauses: TreatyClauseDraft[];
-}
+export type { TreatyClauseDraft, TreatyDraft } from "../model/types";
 
 export type TreatyRegistrationResult =
   | { ok: true; treaty: Treaty }
@@ -48,12 +34,74 @@ export interface TreatyTradePolicy {
 const round = (value: number) => Math.round(value * 100) / 100;
 const TERMINAL_STATUSES = new Set<Treaty["status"]>(["fulfilled", "violated", "expired", "withdrawn"]);
 
+type TreatyOperationalCache = {
+  observedLength: number;
+  active: Set<Treaty>;
+  pending: Set<Treaty>;
+  operational: Set<Treaty>;
+};
+
+// This cache is derived only. It never participates in serialization or truth;
+// a cloned/loaded world simply rebuilds it from authoritative treaty state.
+const OPERATIONAL_CACHE = new WeakMap<WorldState, TreatyOperationalCache>();
+
 function countryById(world: WorldState, id: string) {
   return world.countries.find((country) => country.id === id);
 }
 
 function pairKey(a: string, b: string) {
   return [a, b].sort().join("|");
+}
+
+function treatyIsOperational(treaty: Treaty) {
+  return treaty.status === "active" || treaty.status === "pending" || treaty.obligations.some((obligation) => obligation.status === "active");
+}
+
+function addTreatyToCache(cache: TreatyOperationalCache, treaty: Treaty) {
+  cache.active.delete(treaty);
+  cache.pending.delete(treaty);
+  cache.operational.delete(treaty);
+  if (treaty.status === "active") cache.active.add(treaty);
+  if (treaty.status === "pending") cache.pending.add(treaty);
+  if (treatyIsOperational(treaty)) cache.operational.add(treaty);
+}
+
+function rebuildTreatyCache(world: WorldState) {
+  const cache: TreatyOperationalCache = {
+    observedLength: world.treaties.length,
+    active: new Set(),
+    pending: new Set(),
+    operational: new Set(),
+  };
+  for (const treaty of world.treaties) addTreatyToCache(cache, treaty);
+  OPERATIONAL_CACHE.set(world, cache);
+  return cache;
+}
+
+function treatyCache(world: WorldState) {
+  let cache = OPERATIONAL_CACHE.get(world);
+  if (!cache || cache.observedLength > world.treaties.length) return rebuildTreatyCache(world);
+  if (cache.observedLength < world.treaties.length) {
+    for (let index = cache.observedLength; index < world.treaties.length; index++) addTreatyToCache(cache, world.treaties[index]!);
+    cache.observedLength = world.treaties.length;
+  }
+  return cache;
+}
+
+function syncTreatyCache(world: WorldState, treaty: Treaty) {
+  const cache = OPERATIONAL_CACHE.get(world);
+  if (!cache) return;
+  addTreatyToCache(cache, treaty);
+  cache.observedLength = world.treaties.length;
+}
+
+function treatyById(world: WorldState, treatyId: string) {
+  const numericId = Number(treatyId.startsWith("treaty-") ? treatyId.slice("treaty-".length) : NaN);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const candidate = world.treaties[numericId - 1];
+    if (candidate?.id === treatyId) return candidate;
+  }
+  return world.treaties.find((candidate) => candidate.id === treatyId);
 }
 
 function resourceKey(resource: Resource | null | undefined) {
@@ -220,8 +268,9 @@ export function validateTreatyDraft(world: WorldState, draft: TreatyDraft) {
   const nonAggression = compiled.some((clause) => clause.kind === "non_aggression");
   if (nonAggression && effectiveWeek <= world.week && world.wars.some((war) => pairKey(war.a, war.b) === pairKey(a, b))) errors.push("non-aggression treaty cannot activate while its parties are at war");
 
-  for (const treaty of world.treaties) {
-    if (TERMINAL_STATUSES.has(treaty.status) || pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(a, b)) continue;
+  const cache = treatyCache(world);
+  for (const treaty of [...cache.active, ...cache.pending]) {
+    if (pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(a, b)) continue;
     if (!windowsOverlap(effectiveWeek, expiryWeek, treaty.effectiveWeek, treaty.expiryWeek)) continue;
     for (const clause of compiled) {
       const conflict = treaty.clauses.find((existing) => clausesConflict(clause, existing));
@@ -289,6 +338,7 @@ function activateTreaty(world: WorldState, treaty: Treaty) {
     refundEscrow(world, treaty);
     treaty.status = "violated";
     treaty.terminalReason = "counterparty_missing";
+    syncTreatyCache(world, treaty);
     return null;
   }
 
@@ -310,6 +360,7 @@ function activateTreaty(world: WorldState, treaty: Treaty) {
       reason: "non_aggression_breach",
       severity: 82,
     });
+    syncTreatyCache(world, treaty);
     return `${countryById(world, violatorId)?.name ?? violatorId} prevents ${treaty.title} from entering force by waging war on ${countryById(world, injuredPartyId)?.name ?? injuredPartyId}; the non-aggression commitment is recorded as breached.`;
   }
 
@@ -329,6 +380,7 @@ function activateTreaty(world: WorldState, treaty: Treaty) {
       treaty.obligations.push(createObligation(treaty, clause));
     }
   }
+  syncTreatyCache(world, treaty);
   return null;
 }
 
@@ -365,20 +417,29 @@ export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyReg
 
   world.nextTreatyId += 1;
   world.treaties.push(treaty);
+  syncTreatyCache(world, treaty);
   if (effectiveWeek <= world.week) activateTreaty(world, treaty);
   return { ok: true, treaty };
 }
 
 function activeTreatyClauses(world: WorldState) {
-  return world.treaties.flatMap((treaty) => treaty.status === "active" ? treaty.clauses.filter((clause) => clause.status === "active") : []);
+  const clauses: TreatyClause[] = [];
+  for (const treaty of treatyCache(world).active) {
+    for (const clause of treaty.clauses) if (clause.status === "active") clauses.push(clause);
+  }
+  return clauses;
 }
 
 export function getActiveTreaties(world: WorldState, countryId?: string) {
-  return world.treaties.filter((treaty) => treaty.status === "active" && (!countryId || treaty.parties.includes(countryId)));
+  return [...treatyCache(world).active].filter((treaty) => !countryId || treaty.parties.includes(countryId));
 }
 
 export function isNonAggressionActive(world: WorldState, a: string, b: string) {
-  return getActiveTreaties(world).some((treaty) => pairKey(treaty.parties[0], treaty.parties[1]) === pairKey(a, b) && treaty.clauses.some((clause) => clause.kind === "non_aggression" && clause.status === "active"));
+  for (const treaty of treatyCache(world).active) {
+    if (pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(a, b)) continue;
+    if (treaty.clauses.some((clause) => clause.kind === "non_aggression" && clause.status === "active")) return true;
+  }
+  return false;
 }
 
 function matchesResource(clauseResource: Resource | null, resource: Resource) {
@@ -409,7 +470,7 @@ export function recordTreatyTrade(world: WorldState, buyerId: string, sellerId: 
 }
 
 export function resetTreatyWeeklyUsage(world: WorldState) {
-  for (const treaty of world.treaties) {
+  for (const treaty of treatyCache(world).active) {
     for (const clause of treaty.clauses) if (clause.kind === "quota") clause.usedThisWeek = 0;
   }
 }
@@ -483,10 +544,11 @@ function terminateTreaty(world: WorldState, treaty: Treaty, status: "expired" | 
   for (const clause of treaty.clauses) {
     if (clause.class !== "obligation" || clause.status === "active" || clause.status === "pending") clause.status = status;
   }
+  syncTreatyCache(world, treaty);
 }
 
 export function requestTreatyWithdrawal(world: WorldState, treatyId: string, countryId: string) {
-  const treaty = world.treaties.find((candidate) => candidate.id === treatyId);
+  const treaty = treatyById(world, treatyId);
   if (!treaty) return { ok: false as const, error: "treaty not found" };
   if (!treaty.parties.includes(countryId)) return { ok: false as const, error: "only a treaty party may request withdrawal" };
   if (TERMINAL_STATUSES.has(treaty.status)) return { ok: false as const, error: "treaty is already terminal" };
@@ -499,7 +561,8 @@ export function requestTreatyWithdrawal(world: WorldState, treatyId: string, cou
 
 export function processTreaties(world: WorldState) {
   const messages: string[] = [];
-  for (const treaty of world.treaties) {
+  const cache = treatyCache(world);
+  for (const treaty of [...cache.operational]) {
     if (treaty.status === "pending" && world.week >= treaty.effectiveWeek) {
       const activationFailure = activateTreaty(world, treaty);
       if (activationFailure) messages.push(activationFailure);
@@ -528,6 +591,7 @@ export function processTreaties(world: WorldState) {
       treaty.terminalReason = "term_completed";
       messages.push(`${treaty.title} is fulfilled after all obligations are completed.`);
     }
+    syncTreatyCache(world, treaty);
   }
   return messages;
 }

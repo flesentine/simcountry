@@ -2,6 +2,7 @@ import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite 
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
+import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
@@ -79,12 +80,16 @@ export function createInitialWorld(seed = 1978): WorldState {
     week: 0,
     nextEventId: 1,
     nextTreatyId: 1,
+    nextNegotiationId: 1,
+    nextProposalId: 1,
     countries,
     geography,
     wars: [],
     truces: [],
     treaties: [],
     treatyViolations: [],
+    negotiations: [],
+    proposals: [],
     events: [],
   };
   const landCells = geography.cells.filter((cell) => cell.land).length;
@@ -189,9 +194,6 @@ function runTrade(world: WorldState) {
     const grossAffordabilityPrice = externalPrice + tariffRevenue;
     if (amount < 2 || grossAffordabilityPrice > buyer.treasury) continue;
 
-    // The exporter receives the underlying external trade value. Import tariffs
-    // are domestic revenue collected by the importing state, so they affect
-    // affordability/partner choice without incorrectly enriching the exporter.
     buyer.treasury -= grossAffordabilityPrice;
     buyer.treasury += tariffRevenue;
     seller.treasury += externalPrice;
@@ -391,6 +393,7 @@ export function tickWeek(world: WorldState): WorldState {
 
   for (const message of processTreaties(world)) addEvent(world, "diplomacy", message);
   for (const message of runGovernments(world, rng)) addEvent(world, "politics", message);
+  for (const message of processNegotiations(world, rng)) addEvent(world, "diplomacy", message);
   runEconomy(world, rng);
 
   const blockadeMessages = updateWarLogistics(world);
@@ -416,9 +419,10 @@ export function tickWeek(world: WorldState): WorldState {
     const highestInfra = [...world.geography.routes].sort((a, b) => b.level - a.level || b.condition - a.condition)[0];
     const blockades = world.geography.routes.filter((route) => route.blockedBy).length;
     const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
+    const openNegotiations = world.negotiations.filter((negotiation) => negotiation.status === "open").length;
     const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
     const infraNote = highestInfra ? ` Top infrastructure is level ${highestInfra.level} ${highestInfra.infrastructure}.` : "";
-    const treatyNote = `${activeTreaties} ${activeTreaties === 1 ? "treaty is" : "treaties are"} active.`;
+    const treatyNote = `${activeTreaties} ${activeTreaties === 1 ? "treaty is" : "treaties are"} active; ${openNegotiations} negotiation${openNegotiations === 1 ? " is" : "s are"} open.`;
     addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${treatyNote}`);
   }
   return world;

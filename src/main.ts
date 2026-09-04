@@ -1,6 +1,7 @@
 import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
+import { negotiationSummaryFor } from "./sim/negotiation";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
@@ -152,7 +153,7 @@ function renderTreaties(selected: Country) {
       <span>Open obligations <b>${summary.obligations}</b></span>
     </div>
     <div class="relations treaty-list">
-      ${treaties.length ? treaties.slice().reverse().map((treaty) => {
+      ${treaties.length ? treaties.slice().reverse().slice(0, 8).map((treaty) => {
         const counterpartId = treaty.parties.find((id) => id !== selected.id) ?? selected.id;
         const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
         const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
@@ -162,10 +163,36 @@ function renderTreaties(selected: Country) {
     </div>`;
 }
 
+function renderNegotiations(selected: Country) {
+  const summary = negotiationSummaryFor(selected, world);
+  const negotiations = world.negotiations.filter((negotiation) => negotiation.parties.includes(selected.id)).slice().reverse().slice(0, 8);
+  return `
+    <h3>Diplomatic negotiations</h3>
+    <div class="profile-grid">
+      <span>Total talks <b>${summary.total}</b></span>
+      <span>Open <b>${summary.open}</b></span>
+      <span>Agreements <b>${summary.accepted}</b></span>
+      <span>Bandwidth <b>${summary.open}/${summary.bandwidth}</b></span>
+    </div>
+    <div class="relations negotiation-list">
+      ${negotiations.length ? negotiations.map((negotiation) => {
+        const counterpartId = negotiation.parties.find((id) => id !== selected.id) ?? selected.id;
+        const current = negotiation.currentProposalId ? world.proposals.find((proposal) => proposal.id === negotiation.currentProposalId) : undefined;
+        const selectedEvaluation = current?.evaluations.filter((evaluation) => evaluation.countryId === selected.id).at(-1);
+        const direction = current ? `${countryById(current.proposerId)?.name ?? current.proposerId} → ${countryById(current.recipientId)?.name ?? current.recipientId}` : "closed";
+        const displayedDecision = selectedEvaluation?.decision === "counter" && current?.status === "rejected" ? "counter attempt" : selectedEvaluation?.decision;
+        const score = selectedEvaluation ? ` · cabinet ${displayedDecision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
+        const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
+        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
+      }).join("") : "<p>No diplomatic talks yet.</p>"}
+    </div>`;
+}
+
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
-  const upgraded = world.geography.routes.filter((route) => route.level > 1).length;
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
+  const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
+  const openNegotiations = world.negotiations.filter((negotiation) => negotiation.status === "open").length;
   app.innerHTML = `
     <header class="topbar">
       <div>
@@ -192,7 +219,7 @@ function render() {
       <section class="summary" aria-label="World summary">
         <div><strong>${fmt(world.countries.reduce((sum, c) => sum + c.population, 0))}M</strong><span>population</span></div>
         <div><strong>${world.wars.length}</strong><span>active wars</span></div>
-        <div><strong>${world.treaties.filter((treaty) => treaty.status === "active").length}</strong><span>active treaties</span></div>
+        <div><strong>${activeTreaties} / ${openNegotiations}</strong><span>treaties / open talks</span></div>
         <div><strong>${fmt(avgLegitimacy)}%</strong><span>avg legitimacy</span></div>
       </section>
 
@@ -230,6 +257,7 @@ function render() {
           </div>
           ${renderGovernment(selected)}
           ${renderTreaties(selected)}
+          ${renderNegotiations(selected)}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {

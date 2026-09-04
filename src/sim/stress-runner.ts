@@ -32,6 +32,9 @@ let treatyViolations = 0;
 let deliberateTreatyViolations = 0;
 let diplomaticMemories = 0;
 let lawfulWithdrawalMemories = 0;
+let withdrawalRequests = 0;
+let withdrawnTreaties = 0;
+let expiredAfterWithdrawalNotice = 0;
 let minCredibility = 100;
 let maxCredibility = 0;
 let negotiationsStarted = 0;
@@ -164,6 +167,9 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     }
     for (const amount of Object.values(treaty.treasuryEscrow)) invariant(Number.isFinite(amount) && amount >= -0.0001, `seed ${seed}: invalid treaty escrow`);
   }
+  withdrawalRequests += world.treaties.filter((treaty) => treaty.withdrawalRequestedBy !== null).length;
+  withdrawnTreaties += world.treaties.filter((treaty) => treaty.status === "withdrawn").length;
+  expiredAfterWithdrawalNotice += world.treaties.filter((treaty) => treaty.withdrawalRequestedBy !== null && treaty.status === "expired").length;
   invariant(world.treaties.length <= 4_001, `seed ${seed}: treaty history exceeded the theoretical negotiation pace`);
 
   const negotiationIds = new Set<string>();
@@ -359,6 +365,9 @@ const summary = {
   deliberateTreatyViolations,
   diplomaticMemories,
   lawfulWithdrawalMemories,
+  withdrawalRequests,
+  withdrawnTreaties,
+  expiredAfterWithdrawalNotice,
   minCredibility,
   maxCredibility,
   negotiationsStarted,
@@ -395,6 +404,9 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
+invariant(lawfulWithdrawalMemories > 0, "no autonomous lawful treaty withdrawal occurred in the stress worlds");
+invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");
+invariant(withdrawnTreaties === lawfulWithdrawalMemories, `withdrawn treaty count ${withdrawnTreaties} diverged from lawful-withdrawal memories ${lawfulWithdrawalMemories}`);
 invariant(minCredibility < 45, `minimum credibility ${minCredibility} never reflected reputational damage`);
 invariant(maxCredibility > 55, `maximum credibility ${maxCredibility} never reflected honored commitments`);
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);

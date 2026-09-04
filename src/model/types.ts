@@ -325,6 +325,7 @@ export interface TreatyViolation {
   week: number;
   reason: ObligationFailureReason | "non_aggression_breach" | "sanction_breach" | "quota_breach" | "other";
   severity: number;
+  deliberate: boolean;
 }
 
 export type DiplomaticMemoryCategory = "agreement_signed" | "commitment_honored" | "commitment_breached" | "lawful_withdrawal" | "negotiation_rejected";

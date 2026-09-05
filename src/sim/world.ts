@@ -1,4 +1,4 @@
-import { assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent } from "../ai/policy";
+import { assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -310,9 +310,12 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
       .map((defender) => {
         const nonAggression = isNonAggressionActive(world, attacker.id, defender.id);
-        const breachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
-        const breachFactor = nonAggression ? clamp((breachPressure - 52) / 48, 0.12, 0.72) : 1;
         const assessment = assessWarFromIntelligence(world, attacker, defender);
+        const baseBreachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
+        const breachPressure = nonAggression
+          ? clamp(baseBreachPressure + nonAggressionFeasibilityBonus(attacker, assessment))
+          : 100;
+        const breachFactor = nonAggression ? clamp((breachPressure - 52) / 48, 0.12, 0.72) : 1;
         return {
           defender,
           nonAggression,

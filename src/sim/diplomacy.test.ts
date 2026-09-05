@@ -123,7 +123,8 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
     expect(damagedCredibility).toBeGreaterThanOrEqual(38);
     expect(damagedCredibility).toBeLessThan(42);
     expect(after.eligible).toBe(true);
-    expect(after.chance).toBeGreaterThan(0);
+    expect(after.chance).toBeGreaterThanOrEqual(0.15);
+    expect(after.chance).toBeLessThanOrEqual(0.25);
 
     observer.policy.expansionism = 0;
     observer.policy.diplomacy = 100;

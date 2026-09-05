@@ -239,9 +239,11 @@ export function treatyWithdrawalDecision(world: WorldState, country: Country, co
   // A single maximum-severity breach can only push an uninvolved observer from
   // baseline 50 to 38. The old <32 cutoff therefore ignored a severe public
   // credibility shock unless the observer was also the directly injured party.
-  // Keep baseline relationships ineligible, but let genuinely damaged public
-  // credibility become actionable for sufficiently concerned governments.
-  const eligible = credibility < 42 && pressure >= 10;
+  // Keep baseline relationships ineligible, but let a severe public breach
+  // remain actionable while its credibility scar decays. A <45 ceiling gives
+  // governments time to reconsider overlapping commitments without turning
+  // ordinary 50-point relationships into withdrawal candidates.
+  const eligible = credibility < 45 && pressure >= 10;
   const chance = eligible ? clamp((pressure - 6) / 55, 0.03, 0.25) : 0;
   return { credibility, pressure, chance, eligible };
 }

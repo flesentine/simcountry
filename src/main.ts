@@ -3,6 +3,7 @@ import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
 import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { negotiationSummaryFor } from "./sim/negotiation";
+import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence } from "./sim/intelligence";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
@@ -15,9 +16,11 @@ let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
 let speedControlActive = false;
 let pointerControlActive = false;
+let viewMode: "god" | "intelligence" = "god";
 
 const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
+const clampUi = (value: number) => Math.max(0, Math.min(100, value));
 const yearLabel = () => `Year ${Math.floor(world.week / 52) + 1} · Week ${(world.week % 52) + 1}`;
 const weekLabel = (week: number) => `Y${Math.floor(week / 52) + 1} · W${(week % 52) + 1}`;
 const atWar = (country: Country) => world.wars.some((war) => war.a === country.id || war.b === country.id);
@@ -221,6 +224,32 @@ function renderDiplomaticMemory(selected: Country) {
     </div>`;
 }
 
+function renderForeignIntelligence(selected: Country) {
+  const profiles = world.countries
+    .filter((country) => country.id !== selected.id)
+    .map((subject) => {
+      const profile = getCountryIntelligence(world, selected.id, subject.id);
+      if (!profile) return "";
+      const military = profile.estimates.military;
+      const treasury = profile.estimates.treasury;
+      const readiness = profile.estimates.readiness;
+      const confidence = intelligenceProfileConfidence(profile, world.week);
+      const age = intelligenceProfileAge(profile, world.week);
+      return `<div>
+        <span>${subject.name}</span>
+        <small>military ~${fmt(military.value, 1)} (${fmt(military.low, 1)}–${fmt(military.high, 1)}) · readiness ~${fmt(readiness.value)}%</small>
+        <small>treasury ~$ ${fmt(treasury.value, 1)}B · confidence ${fmt(confidence)}% · observed ${age === 0 ? "this week" : `${age}w ago`}</small>
+      </div>`;
+    })
+    .join("");
+
+  return `
+    <h3>Foreign intelligence</h3>
+    <div class="relations intelligence-list">
+      ${profiles || "<p>No foreign intelligence available.</p>"}
+    </div>`;
+}
+
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
@@ -236,6 +265,12 @@ function render() {
       <div class="controls" aria-label="Simulation controls">
         <button id="runButton" class="primary">${running ? "Pause" : "Run"}</button>
         <button id="stepButton">Step week</button>
+        <label>View
+          <select id="viewModeSelect">
+            <option value="god" ${viewMode === "god" ? "selected" : ""}>God Mode</option>
+            <option value="intelligence" ${viewMode === "intelligence" ? "selected" : ""}>Intelligence Mode</option>
+          </select>
+        </label>
         <label>Speed
           <select id="speedSelect">
             <option value="1" ${speed === 1 ? "selected" : ""}>1×</option>
@@ -259,18 +294,31 @@ function render() {
       ${renderMap(selected)}
 
       <section class="world-grid" aria-label="Countries">
-        ${world.countries.map((country) => `
+        ${world.countries.map((country) => {
+          const intel = viewMode === "intelligence" && country.id !== selected.id
+            ? getCountryIntelligence(world, selected.id, country.id)
+            : null;
+          const intelConfidence = intel ? intelligenceProfileConfidence(intel, world.week) : null;
+          const intelAge = intel ? intelligenceProfileAge(intel, world.week) : null;
+          const population = intel ? intel.estimates.population.value : country.population;
+          const treasury = intel ? intel.estimates.treasury.value : country.treasury;
+          const thirdValue = intel ? intel.estimates.military.value : country.government.legitimacy;
+          const stability = intel ? intel.estimates.stability.value : country.stability;
+          const secondMeter = intel ? intelConfidence ?? 0 : country.government.cohesion;
+          return `
           <button class="country ${country.id === selected.id ? "selected" : ""} ${atWar(country) ? "at-war" : ""}" data-country="${country.id}" style="--country:${country.color}">
             <span class="country-name"><i></i>${country.name}${atWar(country) ? " <em>WAR</em>" : ""}</span>
-            <span class="country-stat"><b>${fmt(country.population)}M</b> people</span>
-            <span class="country-stat"><b>$${fmt(country.treasury, 1)}B</b> treasury</span>
-            <span class="country-stat"><b>${fmt(country.government.legitimacy)}%</b> legitimacy</span>
+            <span class="country-stat"><b>${intel ? "~" : ""}${fmt(population, intel ? 1 : 0)}M</b> ${intel ? "population est." : "people"}</span>
+            <span class="country-stat"><b>${intel ? "~" : ""}${fmt(treasury, 1)}B</b> ${intel ? "treasury est." : "treasury"}</span>
+            <span class="country-stat"><b>${intel ? "~" : ""}${fmt(thirdValue, 1)}${intel ? "" : "%"}</b> ${intel ? "military est." : "legitimacy"}</span>
+            ${intel ? `<span class="country-stat"><b>${fmt(intelConfidence ?? 0)}%</b> intel confidence · ${intelAge === 0 ? "current" : `${intelAge}w old`}</span>` : ""}
             <span class="meters">
-              <span><small>stability</small><i><u style="width:${country.stability}%"></u></i></span>
-              <span><small>cohesion</small><i><u style="width:${country.government.cohesion}%"></u></i></span>
+              <span><small>${intel ? "stability est." : "stability"}</small><i><u style="width:${clampUi(stability)}%"></u></i></span>
+              <span><small>${intel ? "intel conf." : "cohesion"}</small><i><u style="width:${clampUi(secondMeter)}%"></u></i></span>
             </span>
           </button>
-        `).join("")}
+        `;
+        }).join("")}
       </section>
 
       <div class="lower-grid">
@@ -292,6 +340,7 @@ function render() {
           ${renderTreaties(selected)}
           ${renderNegotiations(selected)}
           ${renderDiplomaticMemory(selected)}
+          ${viewMode === "intelligence" ? renderForeignIntelligence(selected) : ""}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
@@ -331,6 +380,12 @@ function render() {
     syncTimer();
     render();
   });
+  const viewModeSelect = app.querySelector<HTMLSelectElement>("#viewModeSelect");
+  viewModeSelect?.addEventListener("change", (event) => {
+    viewMode = (event.target as HTMLSelectElement).value === "intelligence" ? "intelligence" : "god";
+    render();
+  });
+
   const speedSelect = app.querySelector<HTMLSelectElement>("#speedSelect");
   speedSelect?.addEventListener("pointerdown", () => {
     speedControlActive = true;

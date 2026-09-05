@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { assessWarFromIntelligence } from "./policy";
+import { assessWarFromIntelligence, nonAggressionFeasibilityBonus } from "./policy";
 import { getCountryIntelligence } from "../sim/intelligence";
 import { createInitialWorld } from "../sim/world";
 
@@ -66,6 +66,24 @@ describe("Phase 5.1 belief-driven war assessment", () => {
     const overestimated = assessWarFromIntelligence(world, attacker, defender);
 
     expect(underestimated.appetite).toBeGreaterThan(overestimated.appetite);
+  });
+
+  test("perceived military advantage adds only a bounded pact-breach feasibility bonus", () => {
+    const { world, attacker, defender } = prepareWarCase();
+    const profile = getCountryIntelligence(world, attacker.id, defender.id)!;
+    profile.estimates.military = { value: 20, low: 16, high: 24, confidence: 90, observedWeek: world.week };
+    profile.estimates.readiness = { value: 30, low: 25, high: 36, confidence: 90, observedWeek: world.week };
+    const weakDefender = assessWarFromIntelligence(world, attacker, defender);
+    const weakBonus = nonAggressionFeasibilityBonus(attacker, weakDefender);
+
+    profile.estimates.military = { value: 200, low: 180, high: 220, confidence: 90, observedWeek: world.week };
+    profile.estimates.readiness = { value: 95, low: 90, high: 100, confidence: 90, observedWeek: world.week };
+    const strongDefender = assessWarFromIntelligence(world, attacker, defender);
+
+    expect(weakBonus).toBeGreaterThan(0);
+    expect(weakBonus).toBeLessThanOrEqual(12);
+    expect(nonAggressionFeasibilityBonus(attacker, strongDefender)).toBe(0);
+    expect(nonAggressionFeasibilityBonus(attacker, { ...weakDefender, available: false })).toBe(0);
   });
 
   test("cautious governments hedge low-confidence intelligence toward the upper bound", () => {

@@ -1,4 +1,4 @@
-import { chooseTradePartner, getSellerReserveWeeks, getTradeIntent, warAppetite } from "../ai/policy";
+import { assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -310,13 +310,18 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       .filter((defender) => defender.id !== attacker.id && !countryAtWar(world, defender.id) && !getActiveTruce(world, attacker.id, defender.id) && hasStrategicAccess(world, attacker.id, defender.id))
       .map((defender) => {
         const nonAggression = isNonAggressionActive(world, attacker.id, defender.id);
-        const breachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
+        const assessment = assessWarFromIntelligence(world, attacker, defender);
+        const baseBreachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
+        const breachPressure = nonAggression
+          ? clamp(baseBreachPressure + nonAggressionFeasibilityBonus(attacker, assessment))
+          : 100;
         const breachFactor = nonAggression ? clamp((breachPressure - 52) / 48, 0.12, 0.72) : 1;
         return {
           defender,
           nonAggression,
           breachPressure,
-          appetite: warAppetite(attacker, defender) * breachFactor,
+          assessment,
+          appetite: assessment.appetite * breachFactor,
         };
       })
       .filter((candidate) => !candidate.nonAggression || candidate.breachPressure >= 68)
@@ -351,8 +356,19 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
       capturedB: 0,
       lastCaptureWeek: world.week,
       blockadeRouteIds: [],
+      decisionBasis: {
+        perceivedDefenderMilitary: best.assessment.perceivedDefenderMilitary,
+        perceivedDefenderReadiness: best.assessment.perceivedDefenderReadiness,
+        intelligenceConfidence: best.assessment.intelligenceConfidence,
+        intelligenceAgeWeeks: best.assessment.intelligenceAgeWeeks,
+        intelligenceObservedWeek: best.assessment.intelligenceObservedWeek,
+      },
     });
-    addEvent(world, "war", `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; the first operational front is ${front?.id ?? "offshore"}.`);
+    addEvent(
+      world,
+      "war",
+      `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; intelligence assessed ${defender.name} at ${Math.round(best.assessment.perceivedDefenderMilitary * 10) / 10} military and ${Math.round(best.assessment.perceivedDefenderReadiness)}% readiness with ${Math.round(best.assessment.intelligenceConfidence)}% confidence from ${best.assessment.intelligenceAgeWeeks}-week-old reporting. The first operational front is ${front?.id ?? "offshore"}.`,
+    );
   }
 }
 

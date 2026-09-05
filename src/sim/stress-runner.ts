@@ -70,6 +70,7 @@ let warsUnderestimatingDefenderPower = 0;
 let warsOverestimatingDefenderPower = 0;
 let maxWarIntelligenceAge = 0;
 const warIntelligenceConfidence: number[] = [];
+const warDecisionSamples: { seed: number; week: number; attackerId: string; defenderId: string; perceivedDefenderMilitary: number; perceivedDefenderReadiness: number; intelligenceConfidence: number; intelligenceAgeWeeks: number }[] = [];
 
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
@@ -137,6 +138,19 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
         invariant(basis.intelligenceAgeWeeks >= 0 && basis.intelligenceObservedWeek <= world.week, `seed ${seed} week ${world.week}: invalid war intelligence age`);
         beliefDrivenWarStarts++;
         warIntelligenceConfidence.push(basis.intelligenceConfidence);
+        if (warDecisionSamples.length < 8) {
+          const defenderId = war.attacker === war.a ? war.b : war.a;
+          warDecisionSamples.push({
+            seed,
+            week: world.week,
+            attackerId: war.attacker,
+            defenderId,
+            perceivedDefenderMilitary: basis.perceivedDefenderMilitary,
+            perceivedDefenderReadiness: basis.perceivedDefenderReadiness,
+            intelligenceConfidence: basis.intelligenceConfidence,
+            intelligenceAgeWeeks: basis.intelligenceAgeWeeks,
+          });
+        }
         maxWarIntelligenceAge = Math.max(maxWarIntelligenceAge, basis.intelligenceAgeWeeks);
 
         const defenderId = war.attacker === war.a ? war.b : war.a;
@@ -488,6 +502,7 @@ const summary = {
   warsOverestimatingDefenderPower,
   maxWarIntelligenceAge,
   avgWarIntelligenceConfidence: warIntelligenceConfidence.length ? average(warIntelligenceConfidence) : 0,
+  warDecisionSamples,
 };
 
 console.log(JSON.stringify(summary));

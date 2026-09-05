@@ -295,9 +295,23 @@ function render() {
 
       <section class="world-grid" aria-label="Countries">
         ${world.countries.map((country) => {
-          const intel = viewMode === "intelligence" && country.id !== selected.id
-            ? getCountryIntelligence(world, selected.id, country.id)
-            : null;
+          const foreignIntelMode = viewMode === "intelligence" && country.id !== selected.id;
+          const intel = foreignIntelMode ? getCountryIntelligence(world, selected.id, country.id) : null;
+          if (foreignIntelMode && !intel) {
+            return `
+              <button class="country ${atWar(country) ? "at-war" : ""}" data-country="${country.id}" style="--country:${country.color}">
+                <span class="country-name"><i></i>${country.name}${atWar(country) ? " <em>WAR</em>" : ""}</span>
+                <span class="country-stat"><b>Unknown</b> population estimate</span>
+                <span class="country-stat"><b>Unknown</b> treasury estimate</span>
+                <span class="country-stat"><b>Unknown</b> military estimate</span>
+                <span class="country-stat"><b>0%</b> intel confidence · no observation</span>
+                <span class="meters">
+                  <span><small>stability est.</small><i><u style="width:0%"></u></i></span>
+                  <span><small>intel conf.</small><i><u style="width:0%"></u></i></span>
+                </span>
+              </button>
+            `;
+          }
           const intelConfidence = intel ? intelligenceProfileConfidence(intel, world.week) : null;
           const intelAge = intel ? intelligenceProfileAge(intel, world.week) : null;
           const population = intel ? intel.estimates.population.value : country.population;

@@ -404,7 +404,8 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
-invariant(lawfulWithdrawalMemories > 0, "no autonomous lawful treaty withdrawal occurred in the stress worlds");
+invariant(lawfulWithdrawalMemories >= 3, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
+invariant(lawfulWithdrawalMemories < acceptedNegotiations * 0.001, `${lawfulWithdrawalMemories} lawful withdrawals are too frequent relative to ${acceptedNegotiations} accepted agreements`);
 invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");
 invariant(withdrawnTreaties === lawfulWithdrawalMemories, `withdrawn treaty count ${withdrawnTreaties} diverged from lawful-withdrawal memories ${lawfulWithdrawalMemories}`);
 invariant(minCredibility < 45, `minimum credibility ${minCredibility} never reflected reputational damage`);

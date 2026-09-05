@@ -534,9 +534,9 @@ invariant(counterProposals > 0, "no autonomous counterproposal occurred in the s
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
 invariant(deliberateTreatyViolations < acceptedNegotiations * 0.00025, `${deliberateTreatyViolations} deliberate treaty breaches are too frequent relative to ${acceptedNegotiations} accepted agreements`);
-// The current deterministic 100-seed corpus produces 7 withdrawals. Keep a
-// lower floor of 5 so CI catches a return to near-unreachability without
-// overfitting the gate to one exact event count.
+// Phase 4 calibration established 5 as a robust reachability floor. Keep the
+// floor independent of one exact deterministic event count so later causal
+// phases can change histories without weakening the near-unreachability gate.
 invariant(lawfulWithdrawalMemories >= 5, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
 invariant(lawfulWithdrawalMemories < acceptedNegotiations * 0.001, `${lawfulWithdrawalMemories} lawful withdrawals are too frequent relative to ${acceptedNegotiations} accepted agreements`);
 invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");

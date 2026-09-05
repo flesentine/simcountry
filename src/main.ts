@@ -442,7 +442,12 @@ app.addEventListener("pointerdown", (event) => {
   pointerControlActive = Boolean(target?.closest("button, select"));
 });
 window.addEventListener("pointerup", () => {
-  pointerControlActive = false;
+  // Keep the node alive through the click that follows pointerup. Releasing the
+  // guard synchronously creates a small window where an accelerated timer can
+  // replace the target before its click is dispatched.
+  window.setTimeout(() => {
+    pointerControlActive = false;
+  }, 75);
 });
 window.addEventListener("pointercancel", () => {
   pointerControlActive = false;

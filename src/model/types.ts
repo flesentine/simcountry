@@ -102,6 +102,25 @@ export interface Country {
   relations: Record<string, Relation>;
 }
 
+export type IntelligenceMetric = "population" | "treasury" | "military" | "readiness" | "stability";
+
+export interface IntelligenceEstimate {
+  value: number;
+  low: number;
+  high: number;
+  confidence: number;
+  observedWeek: number;
+}
+
+export interface CountryIntelligence {
+  subjectId: string;
+  estimates: Record<IntelligenceMetric, IntelligenceEstimate>;
+}
+
+export interface IntelligenceState {
+  byObserver: Record<string, Record<string, CountryIntelligence>>;
+}
+
 export interface WorldCell {
   id: string;
   x: number;
@@ -429,5 +448,6 @@ export interface WorldState {
   proposals: Proposal[];
   diplomaticMemories: DiplomaticMemory[];
   diplomaticCredibility: Record<string, Record<string, DiplomaticCredibility>>;
+  intelligence: IntelligenceState;
   events: WorldEvent[];
 }

@@ -101,6 +101,14 @@ export function warAppetiteFromPerceivedStrength(
     (0.3 + attacker.policy.risk / 100) * readinessFactor * cabinetSupport * cohesionFactor * defenseCompetence * leaderDrive;
 }
 
+export function nonAggressionFeasibilityBonus(attacker: Country, assessment: WarIntelligenceAssessment) {
+  if (!assessment.available) return 0;
+  const attackerPower = attacker.military * (0.6 + attacker.readiness / 100);
+  const perceivedDefenderPower = assessment.perceivedDefenderMilitary * (0.6 + assessment.perceivedDefenderReadiness / 100);
+  const perceivedRatio = attackerPower / Math.max(1, perceivedDefenderPower);
+  return Math.max(0, Math.min(12, (perceivedRatio - 1) * 8));
+}
+
 export function assessWarFromIntelligence(world: WorldState, attacker: Country, defender: Country): WarIntelligenceAssessment {
   const profile = getCountryIntelligence(world, attacker.id, defender.id);
   if (!profile) {

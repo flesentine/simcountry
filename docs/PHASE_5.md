@@ -127,6 +127,8 @@ When evaluating a foreign defender, however, autonomous war policy now consumes 
 
 The defender's true military/readiness values are not read by the war-appetite calculation. If the attacker has no intelligence profile for that defender, war appetite is zero rather than falling back to hidden truth.
 
+For an active non-aggression pact, the existing ideological/reputation breach pressure remains authoritative, but the same subjective military assessment can add a small, bounded feasibility bonus when the attacker believes it has a strong advantage. This reconnects deliberate pact-breaking to perceived military opportunity without lowering the global breach threshold or consulting hidden defender truth.
+
 Battle resolution remains authoritative after war begins. Intelligence affects the decision to attack, not the physical combat equations.
 
 ### Uncertainty and risk tolerance

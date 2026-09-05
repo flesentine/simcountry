@@ -14,7 +14,7 @@ let running = false;
 let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
-let speedControlActive = false;
+let selectControlActive = false;
 let pointerControlActive = false;
 let viewMode: "god" | "intelligence" = "god";
 
@@ -381,24 +381,34 @@ function render() {
     render();
   });
   const viewModeSelect = app.querySelector<HTMLSelectElement>("#viewModeSelect");
+  viewModeSelect?.addEventListener("pointerdown", () => {
+    selectControlActive = true;
+  });
+  viewModeSelect?.addEventListener("focus", () => {
+    selectControlActive = true;
+  });
+  viewModeSelect?.addEventListener("blur", () => {
+    selectControlActive = false;
+  });
   viewModeSelect?.addEventListener("change", (event) => {
     viewMode = (event.target as HTMLSelectElement).value === "intelligence" ? "intelligence" : "god";
+    selectControlActive = false;
     render();
   });
 
   const speedSelect = app.querySelector<HTMLSelectElement>("#speedSelect");
   speedSelect?.addEventListener("pointerdown", () => {
-    speedControlActive = true;
+    selectControlActive = true;
   });
   speedSelect?.addEventListener("focus", () => {
-    speedControlActive = true;
+    selectControlActive = true;
   });
   speedSelect?.addEventListener("blur", () => {
-    speedControlActive = false;
+    selectControlActive = false;
   });
   speedSelect?.addEventListener("change", (event) => {
     speed = Number((event.target as HTMLSelectElement).value);
-    speedControlActive = false;
+    selectControlActive = false;
     syncTimer();
   });
   app.querySelectorAll<HTMLElement>("[data-country]").forEach((element) => {
@@ -429,7 +439,7 @@ function syncTimer() {
   timer = null;
   if (!running) return;
   timer = window.setInterval(() => {
-    if (speedControlActive) return;
+    if (selectControlActive) return;
     const steps = speed === 1 ? 1 : Math.max(1, Math.floor(speed / 5));
     for (let i = 0; i < steps; i++) tickWeek(world);
     if (!pointerControlActive) render();

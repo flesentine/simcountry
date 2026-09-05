@@ -3,6 +3,7 @@ import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce,
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
 import { ensureDiplomaticState, nonAggressionBreachPressure, treatyWithdrawalDecision } from "./diplomacy";
+import { initializeIntelligence, updateIntelligence } from "./intelligence";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
@@ -94,9 +95,11 @@ export function createInitialWorld(seed = 1978): WorldState {
     proposals: [],
     diplomaticMemories: [],
     diplomaticCredibility: {},
+    intelligence: { byObserver: {} },
     events: [],
   };
   ensureDiplomaticState(world);
+  initializeIntelligence(world);
   const landCells = geography.cells.filter((cell) => cell.land).length;
   const ports = geography.cities.filter((city) => city.port).length;
   const chokepoints = geography.routes.filter((route) => route.chokepoint).length;
@@ -461,6 +464,7 @@ export function tickWeek(world: WorldState): WorldState {
   }
 
   enforceStateBounds(world);
+  updateIntelligence(world);
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;

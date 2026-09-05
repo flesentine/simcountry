@@ -166,7 +166,10 @@ function renderTreaties(selected: Country) {
         const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
         const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
         const timing = treaty.expiryWeek === null ? "open-ended" : `expires ${weekLabel(treaty.expiryWeek)}`;
-        return `<div><span>${escapeHtml(treaty.title)}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
+        const withdrawalNotice = treaty.withdrawalRequestedBy && treaty.withdrawalEffectiveWeek !== null
+          ? ` · withdrawal notice by ${countryById(treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} · ends ${weekLabel(treaty.withdrawalEffectiveWeek)}`
+          : "";
+        return `<div><span>${escapeHtml(treaty.title)}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status}${withdrawalNotice} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
       }).join("") : "<p>No treaty commitments yet.</p>"}
     </div>`;
 }

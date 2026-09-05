@@ -79,7 +79,7 @@ export interface WarIntelligenceAssessment {
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
-function warAppetiteAgainstPerceivedStrength(
+export function warAppetiteFromPerceivedStrength(
   attacker: Country,
   defenderId: string,
   perceivedDefenderMilitary: number,
@@ -142,7 +142,7 @@ export function assessWarFromIntelligence(world: WorldState, attacker: Country, 
   );
 
   return {
-    appetite: warAppetiteAgainstPerceivedStrength(
+    appetite: warAppetiteFromPerceivedStrength(
       attacker,
       defender.id,
       perceivedDefenderMilitary,

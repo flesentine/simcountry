@@ -75,6 +75,7 @@ const warDecisionSamples: { seed: number; week: number; attackerId: string; defe
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
   const world = createInitialWorld(seed);
+  let observedDiplomaticMemoryCount = world.diplomaticMemories.length;
   const fixtureRoute = world.geography.routes[0]!;
   const fixtureA = world.countries.find((country) => country.id === fixtureRoute.a)!;
   const fixtureB = world.countries.find((country) => country.id === fixtureRoute.b)!;
@@ -113,6 +114,22 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       }
     }
     tickWeek(world);
+
+    // Credibility recovers toward baseline over time, so final-year snapshots
+    // cannot prove that a breach ever caused reputational damage. Sample only
+    // when new diplomatic memories are created; this captures the actual
+    // post-event credibility shock without adding a 56-pair scan every week.
+    for (let memoryIndex = observedDiplomaticMemoryCount; memoryIndex < world.diplomaticMemories.length; memoryIndex++) {
+      const memory = world.diplomaticMemories[memoryIndex]!;
+      if (memory.category !== "commitment_breached") continue;
+      for (const observer of world.countries) {
+        if (observer.id === memory.subjectId) continue;
+        const credibility = getCredibility(world, observer.id, memory.subjectId);
+        invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed} week ${world.week}: breach credibility out of bounds`);
+        minCredibility = Math.min(minCredibility, credibility);
+      }
+    }
+    observedDiplomaticMemoryCount = world.diplomaticMemories.length;
 
     const participants = new Set<string>();
     for (const war of world.wars) {
@@ -309,7 +326,6 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       if (observer.id === subject.id) continue;
       const credibility = getCredibility(world, observer.id, subject.id);
       invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed}: credibility out of bounds for ${observer.id}/${subject.id}`);
-      minCredibility = Math.min(minCredibility, credibility);
       maxCredibility = Math.max(maxCredibility, credibility);
     }
   }
@@ -517,6 +533,7 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
+invariant(deliberateTreatyViolations < acceptedNegotiations * 0.00025, `${deliberateTreatyViolations} deliberate treaty breaches are too frequent relative to ${acceptedNegotiations} accepted agreements`);
 // The current deterministic 100-seed corpus produces 7 withdrawals. Keep a
 // lower floor of 5 so CI catches a return to near-unreachability without
 // overfitting the gate to one exact event count.

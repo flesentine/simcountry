@@ -159,8 +159,8 @@ export function ensureIntelligence(world: WorldState) {
 }
 
 export function updateIntelligence(world: WorldState) {
-  ensureIntelligence(world);
   if (world.week === 0 || world.week % 13 !== 0) return;
+  ensureIntelligence(world);
 
   const cycle = Math.floor(world.week / 13) - 1;
   for (let observerIndex = 0; observerIndex < world.countries.length; observerIndex++) {
@@ -177,8 +177,7 @@ export function updateIntelligence(world: WorldState) {
 
 export function getCountryIntelligence(world: WorldState, observerId: string, subjectId: string) {
   if (observerId === subjectId) return null;
-  ensureIntelligence(world);
-  return world.intelligence.byObserver[observerId]?.[subjectId] ?? null;
+  return world.intelligence?.byObserver[observerId]?.[subjectId] ?? null;
 }
 
 export function effectiveIntelConfidence(estimate: IntelligenceEstimate, currentWeek: number) {

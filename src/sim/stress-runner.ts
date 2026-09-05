@@ -39,6 +39,7 @@ let withdrawalReviewOpportunities = 0;
 let eligibleWithdrawalReviews = 0;
 let withdrawalChanceMass = 0;
 let maxWithdrawalChance = 0;
+const withdrawalSamples: { seed: number; week: number; subjectId: string; counterpartId: string; sourceId: string }[] = [];
 let minCredibility = 100;
 let maxCredibility = 0;
 let negotiationsStarted = 0;
@@ -238,7 +239,12 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     const salience = memorySalience(memory, world.week);
     invariant(Number.isFinite(salience) && salience >= 0 && salience <= 100, `seed ${seed}: diplomatic memory salience invalid`);
     if (memory.sourceType === "negotiation") invariant(Boolean(proposalById(world, memory.sourceId)), `seed ${seed}: negotiation memory source missing`);
-    if (memory.category === "lawful_withdrawal") lawfulWithdrawalMemories++;
+    if (memory.category === "lawful_withdrawal") {
+      lawfulWithdrawalMemories++;
+      if (withdrawalSamples.length < 8) {
+        withdrawalSamples.push({ seed, week: memory.week, subjectId: memory.subjectId, counterpartId: memory.counterpartId, sourceId: memory.sourceId });
+      }
+    }
   }
   invariant(
     world.diplomaticMemories.length <= world.negotiations.length + world.treaties.length * 4 + world.treatyViolations.length + 50,
@@ -394,6 +400,7 @@ const summary = {
   eligibleWithdrawalReviews,
   withdrawalChanceMass,
   maxWithdrawalChance,
+  withdrawalSamples,
   minCredibility,
   maxCredibility,
   negotiationsStarted,
@@ -430,7 +437,7 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
-invariant(lawfulWithdrawalMemories >= 3, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
+invariant(lawfulWithdrawalMemories >= 8, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
 invariant(lawfulWithdrawalMemories < acceptedNegotiations * 0.001, `${lawfulWithdrawalMemories} lawful withdrawals are too frequent relative to ${acceptedNegotiations} accepted agreements`);
 invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");
 invariant(withdrawnTreaties === lawfulWithdrawalMemories, `withdrawn treaty count ${withdrawnTreaties} diverged from lawful-withdrawal memories ${lawfulWithdrawalMemories}`);

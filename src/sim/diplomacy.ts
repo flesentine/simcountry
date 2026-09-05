@@ -242,7 +242,7 @@ export function treatyWithdrawalDecision(world: WorldState, country: Country, co
   // Keep baseline relationships ineligible, but let genuinely damaged public
   // credibility become actionable for sufficiently concerned governments.
   const eligible = credibility < 42 && pressure >= 10;
-  const chance = eligible ? clamp((pressure - 8) / 220, 0.012, 0.10) : 0;
+  const chance = eligible ? clamp((pressure - 6) / 55, 0.03, 0.25) : 0;
   return { credibility, pressure, chance, eligible };
 }
 

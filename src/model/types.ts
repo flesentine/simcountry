@@ -325,6 +325,27 @@ export interface TreatyViolation {
   week: number;
   reason: ObligationFailureReason | "non_aggression_breach" | "sanction_breach" | "quota_breach" | "other";
   severity: number;
+  deliberate: boolean;
+}
+
+export type DiplomaticMemoryCategory = "agreement_signed" | "commitment_honored" | "commitment_breached" | "lawful_withdrawal" | "negotiation_rejected";
+export type DiplomaticMemorySource = "treaty" | "negotiation";
+
+export interface DiplomaticMemory {
+  id: string;
+  week: number;
+  subjectId: string;
+  counterpartId: string;
+  category: DiplomaticMemoryCategory;
+  severity: number;
+  sourceType: DiplomaticMemorySource;
+  sourceId: string;
+  description: string;
+}
+
+export interface DiplomaticCredibility {
+  value: number;
+  lastUpdatedWeek: number;
 }
 
 export type NegotiationMotive = "trade_access" | "security" | "financing" | "sanctions_relief" | "reparations";
@@ -397,6 +418,7 @@ export interface WorldState {
   nextTreatyId: number;
   nextNegotiationId: number;
   nextProposalId: number;
+  nextDiplomaticMemoryId: number;
   countries: Country[];
   geography: Geography;
   wars: War[];
@@ -405,5 +427,7 @@ export interface WorldState {
   treatyViolations: TreatyViolation[];
   negotiations: Negotiation[];
   proposals: Proposal[];
+  diplomaticMemories: DiplomaticMemory[];
+  diplomaticCredibility: Record<string, Record<string, DiplomaticCredibility>>;
   events: WorldEvent[];
 }

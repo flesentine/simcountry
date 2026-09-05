@@ -1,3 +1,4 @@
+import { obligationRefusalPressure, recordDiplomaticMemory } from "./diplomacy";
 import type {
   Country,
   LoanClause,
@@ -314,13 +315,24 @@ function createObligation(treaty: Treaty, clause: LoanClause | ReparationsClause
   };
 }
 
-function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week">) {
+function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyViolation, "id" | "treatyId" | "week" | "deliberate"> & { deliberate?: boolean }) {
   if (world.treatyViolations.some((existing) => existing.treatyId === treaty.id && existing.clauseId === violation.clauseId && existing.violatorId === violation.violatorId && existing.reason === violation.reason && existing.week === world.week)) return;
-  world.treatyViolations.push({
+  const recorded: TreatyViolation = {
     id: `violation-${treaty.id}-${world.week}-${world.treatyViolations.length + 1}`,
     treatyId: treaty.id,
     week: world.week,
     ...violation,
+    deliberate: violation.deliberate ?? false,
+  };
+  world.treatyViolations.push(recorded);
+  recordDiplomaticMemory(world, {
+    subjectId: violation.violatorId,
+    counterpartId: violation.injuredPartyId,
+    category: "commitment_breached",
+    severity: violation.severity,
+    sourceType: "treaty",
+    sourceId: recorded.id,
+    description: `${countryById(world, violation.violatorId)?.name ?? violation.violatorId} ${violation.deliberate ? "deliberately " : ""}breached ${treaty.title} (${violation.reason}).`,
   });
 }
 
@@ -417,6 +429,18 @@ export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyReg
 
   world.nextTreatyId += 1;
   world.treaties.push(treaty);
+  for (const subjectId of treaty.parties) {
+    const counterpartId = treaty.parties.find((id) => id !== subjectId) ?? subjectId;
+    recordDiplomaticMemory(world, {
+      subjectId,
+      counterpartId,
+      category: "agreement_signed",
+      severity: 12,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, subjectId)?.name ?? subjectId} signs ${treaty.title} with ${countryById(world, counterpartId)?.name ?? counterpartId}.`,
+    });
+  }
   syncTreatyCache(world, treaty);
   if (effectiveWeek <= world.week) activateTreaty(world, treaty);
   return { ok: true, treaty };
@@ -441,6 +465,32 @@ export function isNonAggressionActive(world: WorldState, a: string, b: string) {
   }
   return false;
 }
+export function breachNonAggressionForWar(world: WorldState, attackerId: string, defenderId: string) {
+  const messages: string[] = [];
+  for (const treaty of [...treatyCache(world).active]) {
+    if (pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(attackerId, defenderId)) continue;
+    const clause = treaty.clauses.find((candidate) => candidate.kind === "non_aggression" && candidate.status === "active");
+    if (!clause) continue;
+
+    treaty.status = "violated";
+    treaty.terminalReason = "material_breach";
+    for (const activeClause of treaty.clauses) {
+      if (activeClause.class !== "obligation" && activeClause.status === "active") activeClause.status = "violated";
+    }
+    addViolation(world, treaty, {
+      clauseId: clause.id,
+      violatorId: attackerId,
+      injuredPartyId: defenderId,
+      reason: "non_aggression_breach",
+      severity: 90,
+      deliberate: true,
+    });
+    syncTreatyCache(world, treaty);
+    messages.push(`${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`);
+  }
+  return messages;
+}
+
 
 function matchesResource(clauseResource: Resource | null, resource: Resource) {
   return clauseResource === null || clauseResource === resource;
@@ -482,6 +532,7 @@ function recordObligationViolation(world: WorldState, treaty: Treaty, obligation
     injuredPartyId: obligation.payeeId,
     reason,
     severity: Math.min(100, 35 + obligation.missedPayments * 18),
+    deliberate: reason === "deliberate_refusal",
   });
 }
 
@@ -502,7 +553,8 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
 
   const due = Math.min(obligation.installment, obligation.remainingAmount);
   const debtHeadroom = Math.max(0, payer.treasury + payer.population * 5);
-  const paid = round(Math.min(due, debtHeadroom));
+  const deliberateRefusal = debtHeadroom + 0.0001 >= due && obligationRefusalPressure(world, payer, payee) >= 72;
+  const paid = deliberateRefusal ? 0 : round(Math.min(due, debtHeadroom));
   if (paid > 0) {
     payer.treasury -= paid;
     payee.treasury += paid;
@@ -512,7 +564,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
 
   if (paid + 0.0001 < due) {
     obligation.missedPayments += 1;
-    obligation.failureReason = "insufficient_treasury";
+    obligation.failureReason = deliberateRefusal ? "deliberate_refusal" : "insufficient_treasury";
     if (obligation.missedPayments >= 3) {
       obligation.status = "defaulted";
       if (treaty.status === "active") {
@@ -521,7 +573,7 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
       }
       const clause = treaty.clauses.find((candidate) => candidate.id === obligation.clauseId);
       if (clause) clause.status = "violated";
-      recordObligationViolation(world, treaty, obligation, "insufficient_treasury");
+      recordObligationViolation(world, treaty, obligation, obligation.failureReason ?? "insufficient_treasury");
     }
   } else {
     obligation.failureReason = null;
@@ -537,12 +589,42 @@ function processObligation(world: WorldState, treaty: Treaty, obligation: Treaty
   }
 }
 
+function recordTreatyHonored(world: WorldState, treaty: Treaty) {
+  for (const subjectId of treaty.parties) {
+    const counterpartId = treaty.parties.find((id) => id !== subjectId) ?? subjectId;
+    recordDiplomaticMemory(world, {
+      subjectId,
+      counterpartId,
+      category: "commitment_honored",
+      severity: 34,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, subjectId)?.name ?? subjectId} completed its commitments under ${treaty.title}.`,
+    });
+  }
+}
+
 function terminateTreaty(world: WorldState, treaty: Treaty, status: "expired" | "withdrawn") {
-  if (treaty.status === "pending") refundEscrow(world, treaty);
+  const wasPending = treaty.status === "pending";
+  if (wasPending) refundEscrow(world, treaty);
   treaty.status = status;
   treaty.terminalReason = status === "expired" ? "expiry" : "lawful_withdrawal";
   for (const clause of treaty.clauses) {
     if (clause.class !== "obligation" || clause.status === "active" || clause.status === "pending") clause.status = status;
+  }
+  if (status === "withdrawn" && treaty.withdrawalRequestedBy) {
+    const counterpartId = treaty.parties.find((id) => id !== treaty.withdrawalRequestedBy) ?? treaty.withdrawalRequestedBy;
+    recordDiplomaticMemory(world, {
+      subjectId: treaty.withdrawalRequestedBy,
+      counterpartId,
+      category: "lawful_withdrawal",
+      severity: 24,
+      sourceType: "treaty",
+      sourceId: treaty.id,
+      description: `${countryById(world, treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} lawfully withdrew from ${treaty.title}.`,
+    });
+  } else if (status === "expired" && !treaty.obligations.some((obligation) => obligation.status === "active" || obligation.status === "defaulted")) {
+    recordTreatyHonored(world, treaty);
   }
   syncTreatyCache(world, treaty);
 }
@@ -586,9 +668,11 @@ export function processTreaties(world: WorldState) {
     const hasOngoingClauses = treaty.clauses.some((clause) => clause.class !== "obligation" && clause.status === "active");
     const obligationClauses = treaty.clauses.filter((clause) => clause.class === "obligation");
     const allObligationsFulfilled = obligationClauses.length > 0 && treaty.obligations.length === obligationClauses.length && treaty.obligations.every((obligation) => obligation.status === "fulfilled");
+    if (treaty.status === "expired" && allObligationsFulfilled) recordTreatyHonored(world, treaty);
     if (treaty.status === "active" && allObligationsFulfilled && !hasOngoingClauses && treaty.expiryWeek === null) {
       treaty.status = "fulfilled";
       treaty.terminalReason = "term_completed";
+      recordTreatyHonored(world, treaty);
       messages.push(`${treaty.title} is fulfilled after all obligations are completed.`);
     }
     syncTreatyCache(world, treaty);

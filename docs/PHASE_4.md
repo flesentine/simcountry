@@ -237,13 +237,157 @@ The 100-seed × 500-year stress gate keeps the Phase 4.0 treaty fixture and addi
 
 ## Phase 4.2 — Diplomatic Memory & Violations
 
-Deferred to Phase 4.2:
-- deliberate treaty violations after activation
-- credibility/reliability distinct from current relationship trust
-- historical diplomatic memory
-- category-specific memory decay
-- violation severity and consequences
-- renewal/withdrawal decisions informed by credibility
-- richer treaty/negotiation history UI
+Phase 4.2 makes diplomatic history causally durable. A government no longer evaluates every new promise as if previous agreements never happened.
 
-The architectural rule remains unchanged: diplomatic agents may propose, prioritize and negotiate, but only the deterministic simulation engine may validate, activate and execute authoritative treaty state.
+### Relationship, credibility and memory remain separate
+
+The simulation deliberately keeps three concepts distinct:
+
+- **relationship trust/tension** — current bilateral warmth, hostility and trade context
+- **credibility** — a directional judgment of how reliably one government expects another to honor commitments
+- **diplomatic memory** — the append-only historical events that explain how reputations formed
+
+A friendly relationship does not imply high credibility, and a tense relationship does not automatically imply unreliability.
+
+Credibility is stored directionally as observer → subject. Public treaty behavior therefore affects the injured counterparty most strongly while still producing a weaker third-party reputation effect.
+
+### First-class diplomatic memory
+
+`WorldState` now serializes:
+- a diplomatic-memory ID counter
+- append-only `DiplomaticMemory` records
+- directional credibility standings
+
+Memory categories currently include:
+- agreement signed
+- commitment honored
+- commitment breached
+- lawful withdrawal
+- negotiation rejected
+
+Every memory records subject, counterpart, week, severity, source type/source ID and a plain-language description.
+
+The memory ledger is historical truth and is never truncated. A derived, non-serialized key index provides O(1) duplicate detection so centuries of history do not make event recording progressively slower.
+
+### Category-specific memory decay
+
+Memories lose **salience**, not existence.
+
+Current half-lives intentionally differ by category:
+- commitment breach: 520 weeks
+- commitment honored: 260 weeks
+- lawful withdrawal: 156 weeks
+- agreement signed: 104 weeks
+- negotiation rejection: 52 weeks
+
+A ten-year-old broken treaty therefore remains much more politically salient than a ten-year-old rejected proposal. The original memory record remains intact even after its current salience becomes small.
+
+Credibility separately trends back toward a neutral baseline over time instead of permanently locking a country into one reputation.
+
+### Treaty lifecycle effects
+
+Treaty signing records public agreement memory for both parties.
+
+Clean completion records honored-commitment memory and raises credibility. This includes:
+- policy treaties reaching expiry without breach
+- obligation-only treaties reaching fulfillment
+- expired treaties whose surviving financial obligations are later fully paid
+
+Treaty violations record:
+- authoritative `TreatyViolation`
+- severity
+- whether the breach was deliberate
+- matching breach memory
+- direct bilateral trust/tension consequences
+- stronger credibility damage for the injured party
+- weaker but real third-party reputational damage
+
+A violation therefore has consequences without collapsing relationship and credibility into one number.
+
+### Lawful withdrawal is not breach
+
+Withdrawal remains an explicit treaty mechanism.
+
+A government may issue lawful withdrawal notice when:
+- counterpart credibility has fallen substantially
+- bilateral tension is high enough
+- withdrawal pressure exceeds diplomatic-engagement incentives
+
+When the notice period completes, the withdrawal is remembered historically but does **not** reduce credibility as if it were a treaty violation.
+
+Financial obligations already created by the treaty continue under the existing Phase 4.0 debt-survival rules.
+
+### Deliberate non-aggression breach
+
+Active non-aggression treaties are no longer magical locks.
+
+A government can deliberately violate one when its revisionist pressure is sufficiently high. The deterministic breach score considers:
+- expansionism
+- risk tolerance
+- defense posture
+- leader ambition
+- bilateral tension
+- diplomatic policy
+- diplomatic engagement
+- the government's own current credibility reputation
+- how credible it believes the counterpart to be
+
+Even after passing that political threshold, the treaty still reduces effective war appetite, making breach rarer than ordinary war initiation.
+
+If war is authorized:
+- the active non-aggression clause is materially breached
+- continuing non-financial treaty permissions/restrictions terminate
+- surviving financial obligations remain operational
+- a deliberate treaty violation is recorded
+- bilateral trust/tension deteriorate
+- the violator's credibility falls with both the injured party and third parties
+- the war then begins through the normal physical-access war engine
+
+### Credibility-aware negotiation and renewal
+
+Cabinet evaluation now incorporates counterpart credibility independently of relationship trust.
+
+This matters especially for:
+- non-aggression promises
+- creditor evaluation of a debtor's repayment reliability
+- selection of future diplomatic partners
+
+Phase 4 still does **not** universally auto-renew treaties. Instead, cleanly honored agreements improve credibility, which raises the probability that the same parties will negotiate a fresh agreement after an old treaty expires and its policy scope becomes available again.
+
+### UI
+
+Country inspectors now expose:
+- national credibility reputation
+- total historical breaches
+- total honored commitments
+- recent high-salience diplomatic memories
+- memory category, date, salience and description
+- directional credibility beside bilateral trust and tension
+
+This makes it possible to see why two countries can currently like one another while still distrusting each other's promises.
+
+### Phase 4.2 verification contract
+
+Regression coverage includes:
+- deterministic initial credibility state
+- relationship/credibility separation
+- public reputation damage from deliberate breach
+- stronger direct-counterparty than third-party credibility effects
+- lawful withdrawal memory without breach penalty
+- credibility gain from clean treaty completion
+- category-specific memory decay
+- cabinet sensitivity to low credibility
+- revisionist versus diplomatic breach pressure
+
+The 100-seed × 500-year stress gate additionally checks:
+- unique memory IDs
+- valid subjects/counterparts
+- bounded severity and salience
+- valid negotiation memory source links
+- every treaty violation has matching breach memory
+- credibility remains finite and bounded
+- memory growth remains bounded by modeled source events
+- deliberate breaches occur autonomously
+- both reputational damage and positive credibility gains occur across the population
+
+The architectural rule remains unchanged: diplomatic agents may propose, prioritize and negotiate, but only the deterministic simulation engine may validate, activate, violate and execute authoritative treaty state.

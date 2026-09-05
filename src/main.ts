@@ -1,6 +1,7 @@
 import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
+import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { negotiationSummaryFor } from "./sim/negotiation";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
@@ -13,6 +14,7 @@ let speed = 1;
 let selectedId = world.countries[0]!.id;
 let timer: number | null = null;
 let speedControlActive = false;
+let pointerControlActive = false;
 
 const CELL = 20;
 const fmt = (value: number, digits = 0) => value.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -22,6 +24,12 @@ const atWar = (country: Country) => world.wars.some((war) => war.a === country.i
 const countryById = (id: string) => world.countries.find((country) => country.id === id);
 const cityById = (id: string) => world.geography.cities.find((city) => city.id === id);
 const systemLabel = (system: string) => system.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
+const escapeHtml = (value: string) => value
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
 
 function eventIcon(event: WorldEvent) {
   return ({ trade: "↔", war: "⚔", peace: "◌", economy: "▥", politics: "◆", diplomacy: "◇", world: "◎" } as const)[event.kind];
@@ -158,7 +166,10 @@ function renderTreaties(selected: Country) {
         const activeObligations = treaty.obligations.filter((obligation) => obligation.status === "active");
         const clauses = treaty.clauses.map((clause) => systemLabel(clause.kind)).join(" · ");
         const timing = treaty.expiryWeek === null ? "open-ended" : `expires ${weekLabel(treaty.expiryWeek)}`;
-        return `<div><span>${treaty.title}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
+        const withdrawalNotice = treaty.withdrawalRequestedBy && treaty.withdrawalEffectiveWeek !== null
+          ? ` · withdrawal notice by ${countryById(treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} · ends ${weekLabel(treaty.withdrawalEffectiveWeek)}`
+          : "";
+        return `<div><span>${escapeHtml(treaty.title)}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status}${withdrawalNotice} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
       }).join("") : "<p>No treaty commitments yet.</p>"}
     </div>`;
 }
@@ -183,8 +194,30 @@ function renderNegotiations(selected: Country) {
         const displayedDecision = selectedEvaluation?.decision === "counter" && current?.status === "rejected" ? "counter attempt" : selectedEvaluation?.decision;
         const score = selectedEvaluation ? ` · cabinet ${displayedDecision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
         const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
-        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed"}</small></div>`;
+        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${escapeHtml(current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed")}</small></div>`;
       }).join("") : "<p>No diplomatic talks yet.</p>"}
+    </div>`;
+}
+
+function renderDiplomaticMemory(selected: Country) {
+  const summary = credibilitySummaryFor(selected, world);
+  return `
+    <h3>Diplomatic credibility & memory</h3>
+    <div class="profile-grid">
+      <span>Reputation <b>${fmt(summary.reputation, 1)}</b></span>
+      <span>Breaches <b>${summary.breaches}</b></span>
+      <span>Honored commitments <b>${summary.honored}</b></span>
+      <span>Memories <b>${world.diplomaticMemories.filter((memory) => memory.subjectId === selected.id || memory.counterpartId === selected.id).length}</b></span>
+    </div>
+    <div class="relations diplomatic-memory-list">
+      ${summary.memories.length ? summary.memories.map(({ memory, salience }) => {
+        const counterpart = countryById(memory.counterpartId)?.name ?? memory.counterpartId;
+        const subject = countryById(memory.subjectId)?.name ?? memory.subjectId;
+        const heading = memory.subjectId === selected.id
+          ? `${systemLabel(memory.category)} with ${counterpart}`
+          : `${subject}: ${systemLabel(memory.category)}`;
+        return `<div><span>${heading}</span><small>${weekLabel(memory.week)} · salience ${fmt(salience, 1)}</small><small>${escapeHtml(memory.description)}</small></div>`;
+      }).join("") : "<p>No durable diplomatic memories yet.</p>"}
     </div>`;
 }
 
@@ -258,13 +291,14 @@ function render() {
           ${renderGovernment(selected)}
           ${renderTreaties(selected)}
           ${renderNegotiations(selected)}
+          ${renderDiplomaticMemory(selected)}
           <h3>Foreign relations</h3>
           <div class="relations">
             ${world.countries.filter((c) => c.id !== selected.id).map((other) => {
               const r = selected.relations[other.id]!;
               const truce = getActiveTruce(world, selected.id, other.id);
               const access = world.geography.adjacency[selected.id]?.includes(other.id) ? "land" : world.geography.routes.some((route) => route.mode === "sea" && ((route.a === selected.id && route.b === other.id) || (route.b === selected.id && route.a === other.id))) ? "sea" : "none";
-              return `<div><span>${other.name}</span><small>${access} access · trust ${fmt(r.trust)} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
+              return `<div><span>${other.name}</span><small>${access} access · trust ${fmt(r.trust)} · credibility ${fmt(getCredibility(world, selected.id, other.id))} · tension ${fmt(r.tension)}${truce ? ` · truce to ${weekLabel(truce.endWeek)}` : ""}</small><i class="relation-bar"><u style="width:${r.trust}%"></u></i></div>`;
             }).join("")}
           </div>
         </section>
@@ -273,7 +307,7 @@ function render() {
           <div class="panel-heading"><h2>World history</h2><span>${world.events.length} total · latest 40</span></div>
           <div class="event-list" aria-live="polite">
             ${world.events.slice(0, 40).map((event) => `
-              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${event.text}</p></div></article>
+              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${escapeHtml(event.text)}</p></div></article>
             `).join("")}
           </div>
         </section>
@@ -320,6 +354,21 @@ function render() {
   });
 }
 
+
+// At accelerated speeds the app re-renders every 120ms. Keep the current
+// interactive node alive for the duration of a pointer press so a normal
+// human-length click cannot begin on one button and end on its replacement.
+app.addEventListener("pointerdown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  pointerControlActive = Boolean(target?.closest("button, select"));
+});
+window.addEventListener("pointerup", () => {
+  pointerControlActive = false;
+});
+window.addEventListener("pointercancel", () => {
+  pointerControlActive = false;
+});
+
 function syncTimer() {
   if (timer !== null) window.clearInterval(timer);
   timer = null;
@@ -328,7 +377,7 @@ function syncTimer() {
     if (speedControlActive) return;
     const steps = speed === 1 ? 1 : Math.max(1, Math.floor(speed / 5));
     for (let i = 0; i < steps; i++) tickWeek(world);
-    render();
+    if (!pointerControlActive) render();
   }, speed === 1 ? 650 : 120);
 }
 

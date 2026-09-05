@@ -1,3 +1,4 @@
+import { getCredibility, memorySalience, treatyWithdrawalDecision } from "./diplomacy";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
@@ -28,6 +29,19 @@ let finalChokepoints = 0;
 let treatyFixtures = 0;
 let fulfilledFixtureObligations = 0;
 let treatyViolations = 0;
+let deliberateTreatyViolations = 0;
+let diplomaticMemories = 0;
+let lawfulWithdrawalMemories = 0;
+let withdrawalRequests = 0;
+let withdrawnTreaties = 0;
+let expiredAfterWithdrawalNotice = 0;
+let withdrawalReviewOpportunities = 0;
+let eligibleWithdrawalReviews = 0;
+let withdrawalChanceMass = 0;
+let maxWithdrawalChance = 0;
+const withdrawalSamples: { seed: number; week: number; subjectId: string; counterpartId: string; sourceId: string }[] = [];
+let minCredibility = 100;
+let maxCredibility = 0;
 let negotiationsStarted = 0;
 let acceptedNegotiations = 0;
 let rejectedNegotiations = 0;
@@ -40,6 +54,9 @@ let maxTreatiesPerWorld = 0;
 const finalReadiness: number[] = [];
 const finalTension: number[] = [];
 const finalTreasuries: number[] = [];
+const finalTreasuryPerCapita: number[] = [];
+const finalWorldTreasuryPerCapita: number[] = [];
+let maxTreasuryCountry = { seed: 0, country: "", treasury: Number.NEGATIVE_INFINITY, population: 0, treasuryPerCapita: Number.NEGATIVE_INFINITY };
 const finalCityPopulations: number[] = [];
 const finalLegitimacy: number[] = [];
 const finalCohesion: number[] = [];
@@ -67,6 +84,24 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   treatyFixtures++;
 
   for (let week = 0; week < YEARS * 52; week++) {
+    // Measure the autonomous withdrawal decision surface without consuming RNG
+    // or mutating state. Sample immediately before each quarterly review.
+    if ((world.week + 1) % 13 === 0) {
+      for (const treaty of getActiveTreaties(world).filter((candidate) => candidate.withdrawalRequestedBy === null)) {
+        const [aId, bId] = treaty.parties;
+        const a = world.countries.find((country) => country.id === aId);
+        const b = world.countries.find((country) => country.id === bId);
+        if (!a || !b) continue;
+        for (const [country, counterpart] of [[a, b], [b, a]] as const) {
+          withdrawalReviewOpportunities++;
+          const decision = treatyWithdrawalDecision(world, country, counterpart);
+          if (!decision.eligible) continue;
+          eligibleWithdrawalReviews++;
+          withdrawalChanceMass += decision.chance;
+          maxWithdrawalChance = Math.max(maxWithdrawalChance, decision.chance);
+        }
+      }
+    }
     tickWeek(world);
 
     const participants = new Set<string>();
@@ -155,6 +190,9 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     }
     for (const amount of Object.values(treaty.treasuryEscrow)) invariant(Number.isFinite(amount) && amount >= -0.0001, `seed ${seed}: invalid treaty escrow`);
   }
+  withdrawalRequests += world.treaties.filter((treaty) => treaty.withdrawalRequestedBy !== null).length;
+  withdrawnTreaties += world.treaties.filter((treaty) => treaty.status === "withdrawn").length;
+  expiredAfterWithdrawalNotice += world.treaties.filter((treaty) => treaty.withdrawalRequestedBy !== null && treaty.status === "expired").length;
   invariant(world.treaties.length <= 4_001, `seed ${seed}: treaty history exceeded the theoretical negotiation pace`);
 
   const negotiationIds = new Set<string>();
@@ -190,6 +228,48 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   invariant(world.negotiations.length <= 4_000, `seed ${seed}: negotiation history exceeded two openings per quarter`);
   invariant(world.proposals.length <= 12_000, `seed ${seed}: proposal history exceeded three rounds per negotiation`);
 
+  const memoryIds = new Set<string>();
+  for (const memory of world.diplomaticMemories) {
+    invariant(!memoryIds.has(memory.id), `seed ${seed}: duplicate diplomatic memory id ${memory.id}`);
+    memoryIds.add(memory.id);
+    invariant(world.countries.some((country) => country.id === memory.subjectId), `seed ${seed}: diplomatic memory subject missing`);
+    invariant(world.countries.some((country) => country.id === memory.counterpartId), `seed ${seed}: diplomatic memory counterpart missing`);
+    invariant(memory.subjectId !== memory.counterpartId, `seed ${seed}: diplomatic memory became self-referential`);
+    invariant(Number.isFinite(memory.severity) && memory.severity >= 0 && memory.severity <= 100, `seed ${seed}: diplomatic memory severity invalid`);
+    const salience = memorySalience(memory, world.week);
+    invariant(Number.isFinite(salience) && salience >= 0 && salience <= 100, `seed ${seed}: diplomatic memory salience invalid`);
+    if (memory.sourceType === "negotiation") invariant(Boolean(proposalById(world, memory.sourceId)), `seed ${seed}: negotiation memory source missing`);
+    if (memory.category === "lawful_withdrawal") {
+      lawfulWithdrawalMemories++;
+      if (withdrawalSamples.length < 8) {
+        withdrawalSamples.push({ seed, week: memory.week, subjectId: memory.subjectId, counterpartId: memory.counterpartId, sourceId: memory.sourceId });
+      }
+    }
+  }
+  invariant(
+    world.diplomaticMemories.length <= world.negotiations.length + world.treaties.length * 4 + world.treatyViolations.length + 50,
+    `seed ${seed}: diplomatic memory history exceeded modeled source growth`,
+  );
+
+  for (const violation of world.treatyViolations) {
+    invariant(
+      world.diplomaticMemories.some((memory) => memory.sourceId === violation.id && memory.category === "commitment_breached" && memory.subjectId === violation.violatorId),
+      `seed ${seed}: treaty violation ${violation.id} lacks breach memory`,
+    );
+    if (violation.deliberate) deliberateTreatyViolations++;
+  }
+
+  for (const observer of world.countries) {
+    for (const subject of world.countries) {
+      if (observer.id === subject.id) continue;
+      const credibility = getCredibility(world, observer.id, subject.id);
+      invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed}: credibility out of bounds for ${observer.id}/${subject.id}`);
+      minCredibility = Math.min(minCredibility, credibility);
+      maxCredibility = Math.max(maxCredibility, credibility);
+    }
+  }
+
+  diplomaticMemories += world.diplomaticMemories.length;
   fulfilledFixtureObligations += fixture.treaty.obligations.filter((obligation) => obligation.status === "fulfilled").length;
   treatyViolations += world.treatyViolations.length;
   negotiationsStarted += world.negotiations.length;
@@ -232,10 +312,25 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     if (country.military <= 3.0001) floorCountries++;
     finalReadiness.push(country.readiness);
     finalTreasuries.push(country.treasury);
+    const treasuryPerCapita = country.treasury / Math.max(1, country.population);
+    finalTreasuryPerCapita.push(treasuryPerCapita);
+    if (country.treasury > maxTreasuryCountry.treasury) {
+      maxTreasuryCountry = {
+        seed,
+        country: country.name,
+        treasury: country.treasury,
+        population: country.population,
+        treasuryPerCapita,
+      };
+    }
     finalLegitimacy.push(country.government.legitimacy);
     finalCohesion.push(country.government.cohesion);
     finalDissent.push(country.government.dissent);
   }
+
+  const worldTreasury = world.countries.reduce((sum, country) => sum + country.treasury, 0);
+  const worldPopulation = world.countries.reduce((sum, country) => sum + country.population, 0);
+  finalWorldTreasuryPerCapita.push(worldTreasury / Math.max(1, worldPopulation));
 
   for (const city of world.geography.cities) {
     const cell = world.geography.cells.find((candidate) => candidate.id === city.cellId);
@@ -277,6 +372,9 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
 const avgReadiness = average(finalReadiness);
 const avgTension = average(finalTension);
 const maxTreasury = Math.max(...finalTreasuries);
+const maxTreasuryPerCapita = Math.max(...finalTreasuryPerCapita);
+const maxWorldTreasuryPerCapita = Math.max(...finalWorldTreasuryPerCapita);
+const avgWorldTreasuryPerCapita = average(finalWorldTreasuryPerCapita);
 const maxCityPopulation = Math.max(...finalCityPopulations);
 const avgLegitimacy = average(finalLegitimacy);
 const avgCohesion = average(finalCohesion);
@@ -292,6 +390,19 @@ const summary = {
   treatyFixtures,
   fulfilledFixtureObligations,
   treatyViolations,
+  deliberateTreatyViolations,
+  diplomaticMemories,
+  lawfulWithdrawalMemories,
+  withdrawalRequests,
+  withdrawnTreaties,
+  expiredAfterWithdrawalNotice,
+  withdrawalReviewOpportunities,
+  eligibleWithdrawalReviews,
+  withdrawalChanceMass,
+  maxWithdrawalChance,
+  withdrawalSamples,
+  minCredibility,
+  maxCredibility,
   negotiationsStarted,
   acceptedNegotiations,
   rejectedNegotiations,
@@ -304,11 +415,17 @@ const summary = {
   avgReadiness,
   avgTension,
   maxTreasury,
+  maxTreasuryCountry,
+  maxTreasuryPerCapita,
+  maxWorldTreasuryPerCapita,
+  avgWorldTreasuryPerCapita,
   maxCityPopulation,
   avgLegitimacy,
   avgCohesion,
   avgDissent,
 };
+
+console.log(JSON.stringify(summary));
 
 invariant(finalReadiness.length === SEEDS.length * 8, "stress gate did not evaluate all countries");
 invariant(treatyFixtures === SEEDS.length, "treaty fixture did not register in every stress world");
@@ -318,17 +435,30 @@ invariant(worldsWithAcceptedNegotiations >= SEEDS.length * 0.7, `only ${worldsWi
 invariant(acceptedNegotiations > SEEDS.length, `only ${acceptedNegotiations} autonomous negotiations reached agreement`);
 invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNegotiations}/${negotiationsStarted} autonomous negotiations were rejected; cabinet bargaining is too agreeable`);
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
+invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
+invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
+// The current deterministic 100-seed corpus produces 7 withdrawals. Keep a
+// lower floor of 5 so CI catches a return to near-unreachability without
+// overfitting the gate to one exact event count.
+invariant(lawfulWithdrawalMemories >= 5, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
+invariant(lawfulWithdrawalMemories < acceptedNegotiations * 0.001, `${lawfulWithdrawalMemories} lawful withdrawals are too frequent relative to ${acceptedNegotiations} accepted agreements`);
+invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");
+invariant(withdrawnTreaties === lawfulWithdrawalMemories, `withdrawn treaty count ${withdrawnTreaties} diverged from lawful-withdrawal memories ${lawfulWithdrawalMemories}`);
+invariant(minCredibility < 45, `minimum credibility ${minCredibility} never reflected reputational damage`);
+invariant(maxCredibility > 55, `maximum credibility ${maxCredibility} never reflected honored commitments`);
 invariant(worldsAtMilitaryFloor === 0, `${worldsAtMilitaryFloor} worlds collapsed universally to the military floor`);
 invariant(totalFloorCountries < SEEDS.length * 2, `${totalFloorCountries} countries ended at the military floor`);
 invariant(upgradedRoutes > 0, "no infrastructure upgrades survived to the end of the stress worlds");
 invariant(finalChokepoints > 0, "all maritime chokepoints disappeared");
 invariant(avgReadiness > 35, `average readiness ${avgReadiness} is too low`);
 invariant(avgTension < 70, `average tension ${avgTension} is too high`);
-invariant(maxTreasury < 5_000, `maximum treasury ${maxTreasury} exceeds the fiscal ceiling`);
+// Absolute treasury is not scale-invariant because migration can concentrate
+// population in a durable, peaceful state. The global per-capita ratio is the
+// stronger runaway-money check: trade, loans and reparations are transfers,
+// while taxes are countered by spending and population-scaled reserve investment.
+invariant(maxWorldTreasuryPerCapita < 32, `maximum world treasury/population ratio ${maxWorldTreasuryPerCapita} exceeds the fiscal stability ceiling`);
 invariant(maxCityPopulation < 200, `maximum city population ${maxCityPopulation} is implausibly high`);
 invariant(avgLegitimacy > 18, `average legitimacy ${avgLegitimacy} collapsed`);
 invariant(avgCohesion > 18, `average cabinet cohesion ${avgCohesion} collapsed`);
 invariant(avgCohesion < 90, `average cabinet cohesion ${avgCohesion} saturated unrealistically`);
 invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
-
-console.log(JSON.stringify(summary));

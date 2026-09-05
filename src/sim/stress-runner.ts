@@ -1,4 +1,4 @@
-import { getCredibility, memorySalience } from "./diplomacy";
+import { getCredibility, memorySalience, treatyWithdrawalDecision } from "./diplomacy";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
@@ -35,6 +35,10 @@ let lawfulWithdrawalMemories = 0;
 let withdrawalRequests = 0;
 let withdrawnTreaties = 0;
 let expiredAfterWithdrawalNotice = 0;
+let withdrawalReviewOpportunities = 0;
+let eligibleWithdrawalReviews = 0;
+let withdrawalChanceMass = 0;
+let maxWithdrawalChance = 0;
 let minCredibility = 100;
 let maxCredibility = 0;
 let negotiationsStarted = 0;
@@ -79,6 +83,24 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   treatyFixtures++;
 
   for (let week = 0; week < YEARS * 52; week++) {
+    // Measure the autonomous withdrawal decision surface without consuming RNG
+    // or mutating state. Sample immediately before each quarterly review.
+    if ((world.week + 1) % 13 === 0) {
+      for (const treaty of getActiveTreaties(world).filter((candidate) => candidate.withdrawalRequestedBy === null)) {
+        const [aId, bId] = treaty.parties;
+        const a = world.countries.find((country) => country.id === aId);
+        const b = world.countries.find((country) => country.id === bId);
+        if (!a || !b) continue;
+        for (const [country, counterpart] of [[a, b], [b, a]] as const) {
+          withdrawalReviewOpportunities++;
+          const decision = treatyWithdrawalDecision(world, country, counterpart);
+          if (!decision.eligible) continue;
+          eligibleWithdrawalReviews++;
+          withdrawalChanceMass += decision.chance;
+          maxWithdrawalChance = Math.max(maxWithdrawalChance, decision.chance);
+        }
+      }
+    }
     tickWeek(world);
 
     const participants = new Set<string>();
@@ -368,6 +390,10 @@ const summary = {
   withdrawalRequests,
   withdrawnTreaties,
   expiredAfterWithdrawalNotice,
+  withdrawalReviewOpportunities,
+  eligibleWithdrawalReviews,
+  withdrawalChanceMass,
+  maxWithdrawalChance,
   minCredibility,
   maxCredibility,
   negotiationsStarted,

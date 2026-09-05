@@ -61,6 +61,10 @@ const finalCityPopulations: number[] = [];
 const finalLegitimacy: number[] = [];
 const finalCohesion: number[] = [];
 const finalDissent: number[] = [];
+let intelligenceProfiles = 0;
+let staleIntelligenceProfiles = 0;
+let imperfectMilitaryEstimates = 0;
+const intelligenceConfidence: number[] = [];
 
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
@@ -328,6 +332,31 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     finalDissent.push(country.government.dissent);
   }
 
+  invariant(Object.keys(world.intelligence.byObserver).length === world.countries.length, `seed ${seed}: intelligence observer count diverged`);
+  for (const observer of world.countries) {
+    const profiles = world.intelligence.byObserver[observer.id];
+    invariant(Boolean(profiles), `seed ${seed}: ${observer.name} lost intelligence state`);
+    invariant(Object.keys(profiles!).length === world.countries.length - 1, `seed ${seed}: ${observer.name} intelligence profile count diverged`);
+    invariant(!profiles![observer.id], `seed ${seed}: ${observer.name} received a self-intelligence profile`);
+    for (const [subjectId, profile] of Object.entries(profiles!)) {
+      invariant(world.countries.some((country) => country.id === subjectId), `seed ${seed}: intelligence subject ${subjectId} missing`);
+      invariant(profile.subjectId === subjectId, `seed ${seed}: intelligence subject key mismatch ${subjectId}`);
+      intelligenceProfiles++;
+      const age = world.week - profile.estimates.population.observedWeek;
+      invariant(age >= 0, `seed ${seed}: future-dated intelligence observation`);
+      if (age > 13) staleIntelligenceProfiles++;
+      const subject = world.countries.find((country) => country.id === subjectId)!;
+      if (Math.abs(profile.estimates.military.value - subject.military) > 0.05) imperfectMilitaryEstimates++;
+      for (const estimate of Object.values(profile.estimates)) {
+        invariant([estimate.value, estimate.low, estimate.high, estimate.confidence, estimate.observedWeek].every(Number.isFinite), `seed ${seed}: non-finite intelligence estimate`);
+        invariant(estimate.low <= estimate.value && estimate.value <= estimate.high, `seed ${seed}: intelligence interval does not contain estimate`);
+        invariant(estimate.confidence >= 20 && estimate.confidence <= 92, `seed ${seed}: intelligence confidence out of bounds`);
+        invariant(estimate.observedWeek <= world.week, `seed ${seed}: intelligence observation lies in the future`);
+        intelligenceConfidence.push(estimate.confidence);
+      }
+    }
+  }
+
   const worldTreasury = world.countries.reduce((sum, country) => sum + country.treasury, 0);
   const worldPopulation = world.countries.reduce((sum, country) => sum + country.population, 0);
   finalWorldTreasuryPerCapita.push(worldTreasury / Math.max(1, worldPopulation));
@@ -423,6 +452,10 @@ const summary = {
   avgLegitimacy,
   avgCohesion,
   avgDissent,
+  intelligenceProfiles,
+  staleIntelligenceProfiles,
+  imperfectMilitaryEstimates,
+  avgIntelligenceConfidence: average(intelligenceConfidence),
 };
 
 console.log(JSON.stringify(summary));
@@ -462,3 +495,6 @@ invariant(avgLegitimacy > 18, `average legitimacy ${avgLegitimacy} collapsed`);
 invariant(avgCohesion > 18, `average cabinet cohesion ${avgCohesion} collapsed`);
 invariant(avgCohesion < 90, `average cabinet cohesion ${avgCohesion} saturated unrealistically`);
 invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
+invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile count ${intelligenceProfiles} did not cover every foreign pair`);
+invariant(staleIntelligenceProfiles > 0, "intelligence never became stale");
+invariant(imperfectMilitaryEstimates > intelligenceProfiles * 0.5, "foreign military intelligence became implausibly omniscient");

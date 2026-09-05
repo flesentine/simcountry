@@ -126,6 +126,15 @@ describe("Phase 4.2 diplomatic memory and credibility", () => {
     expect(after.chance).toBeGreaterThanOrEqual(0.15);
     expect(after.chance).toBeLessThanOrEqual(0.25);
 
+    // The public credibility scar should remain actionable after substantial
+    // decay; the former <42 gate closed before this point.
+    world.week = 260;
+    const decayed = treatyWithdrawalDecision(world, observer, unreliable);
+    expect(decayed.credibility).toBeGreaterThan(42);
+    expect(decayed.credibility).toBeLessThan(45);
+    expect(decayed.eligible).toBe(true);
+    expect(decayed.chance).toBeGreaterThan(0.10);
+
     observer.policy.expansionism = 0;
     observer.policy.diplomacy = 100;
     observer.government.agenda.diplomaticEngagement = 100;

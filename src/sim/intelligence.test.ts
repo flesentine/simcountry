@@ -82,6 +82,18 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(truthOnly(distorted)).toEqual(truthOnly(control));
   });
 
+  test("read-only intelligence lookup never repairs or mutates missing belief state", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    delete (world as Partial<WorldState>).intelligence;
+    const before = structuredClone(world);
+
+    expect(getCountryIntelligence(world, observer.id, subject.id)).toBeNull();
+    expect(world).toEqual(before);
+    expect((world as Partial<WorldState>).intelligence).toBeUndefined();
+  });
+
   test("older serialized worlds rebuild missing intelligence without rewriting truth", () => {
     const world = createInitialWorld(1978);
     for (let week = 0; week < 21; week++) tickWeek(world);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { getSellerReserveWeeks, getTradeIntent, warAppetite } from "../ai/policy";
+import { getSellerReserveWeeks, getTradeIntent, warAppetiteFromPerceivedStrength } from "../ai/policy";
 import { runGovernments } from "./governance";
 import { createInitialWorld, tickWeek } from "./world";
 
@@ -158,9 +158,9 @@ describe("SimCountry phase 3 governments and delegation", () => {
     attacker.government.legitimacy = 80;
     attacker.government.cohesion = 80;
     attacker.government.agenda.defensePosture = 10;
-    const reluctant = warAppetite(attacker, defender);
+    const reluctant = warAppetiteFromPerceivedStrength(attacker, defender.id, defender.military, defender.readiness);
     attacker.government.agenda.defensePosture = 95;
-    const hawkish = warAppetite(attacker, defender);
+    const hawkish = warAppetiteFromPerceivedStrength(attacker, defender.id, defender.military, defender.readiness);
     expect(hawkish).toBeGreaterThan(reluctant * 3);
   });
 

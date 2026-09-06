@@ -224,7 +224,7 @@ export interface TreatyValidationOptions {
   // actually fund escrow. During proposal formation, a government may verify
   // its own funding capacity but must not inspect a foreign creditor's hidden
   // treasury merely to decide whether talks are allowed to open.
-  fundingObserverId?: string | null;
+  fundingObserverId?: string;
 }
 
 export function validateTreatyDraft(

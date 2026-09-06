@@ -343,3 +343,54 @@ The 100-seed × 500-year stress population additionally requires belief-driven e
 
 The architectural boundary remains: **belief decides whom to approach and what to propose; authoritative treaty machinery decides what can actually be executed.**
 
+## Phase 5.4 — Belief-Driven Loan Evaluation
+
+Phase 5.4 migrates the creditor side of financing negotiations from hidden debtor fiscal truth to the creditor's subjective intelligence.
+
+### Creditor cabinets no longer inspect debtor truth
+
+A creditor still knows its own treasury, population, liquidity reserve, government and political constraints exactly.
+
+When deciding whether a foreign loan is attractive, however, the creditor no longer reads the debtor's authoritative treasury or population. It consumes the creditor's stored estimates of those two foreign metrics and derives a perceived fiscal-stress signal from them.
+
+Missing debtor intelligence does not reveal hidden truth. The cabinet instead applies maximum repayment-risk stress.
+
+### Uncertainty and risk tolerance
+
+Weak or stale fiscal intelligence is treated pessimistically.
+
+A cautious creditor hedges:
+
+- debtor treasury downward toward its low bound
+- debtor population downward toward its low bound when measuring debt burden per capita
+
+This makes the same uncertain debt position look riskier. A risk-tolerant creditor stays closer to the central estimate.
+
+The creditor's own liquidity cost remains authoritative because governments know their own balance sheet.
+
+### Execution remains authoritative
+
+Subjective belief changes cabinet approval, counteroffer and rejection decisions. It does not transfer funds.
+
+At signature, the treaty registry still validates the creditor's real funding capacity and escrows the real principal. A mistaken optimistic belief about the debtor can therefore produce a bad lending decision, but it cannot create treasury or bypass execution constraints.
+
+### Decision provenance
+
+Financing-response history now records the creditor's perceived debtor treasury, perceived population, fiscal-stress estimate, effective intelligence confidence and observation age. If intelligence is absent, history records that the cabinet used maximum repayment-risk stress.
+
+### Phase 5.4 verification contract
+
+Regression coverage requires:
+
+- changing hidden debtor treasury/population while holding creditor belief fixed cannot change the creditor's repayment assessment or cabinet evaluation
+- missing debtor intelligence cannot fall back to authoritative debtor finances
+- cautious creditors hedge stale low-confidence debtor intelligence more pessimistically than risk-tolerant creditors
+
+The 100-seed × 500-year stress population additionally requires:
+
+- creditor-side financing evaluations from subjective intelligence remain observable
+- creditor loan-intelligence provenance continues to reach world history
+- all prior war, trade and negotiation belief gates remain satisfied
+
+The architectural boundary remains: **belief governs whether the creditor wants the loan; authoritative treaty machinery governs whether the loan can actually be funded and executed.**
+

@@ -6,6 +6,7 @@ import {
   getCountryIntelligence,
   intelligenceProfileAge,
 } from "./intelligence";
+import { getSellerExportableSurplus } from "./trade";
 import { createInitialWorld, tickWeek } from "./world";
 
 function truthOnly(world: WorldState) {
@@ -26,6 +27,7 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(profiles[observer.id]).toBeUndefined();
 
     let imperfect = 0;
+    let imperfectExportability = 0;
     for (const subject of a.countries.filter((country) => country.id !== observer.id)) {
       const profile = profiles[subject.id]!;
       for (const estimate of Object.values(profile.estimates)) {
@@ -37,8 +39,12 @@ describe("Phase 5.0 subjective intelligence", () => {
         expect(estimate.observedWeek).toBe(0);
       }
       if (Math.abs(profile.estimates.military.value - subject.military) > 0.05) imperfect++;
+      if (Math.abs(profile.estimates.foodExportable.value - getSellerExportableSurplus(subject, "food")) > 0.05) {
+        imperfectExportability++;
+      }
     }
     expect(imperfect).toBeGreaterThan(0);
+    expect(imperfectExportability).toBeGreaterThan(0);
   });
 
   test("quarterly collection refreshes only part of the foreign picture so beliefs can become stale", () => {
@@ -59,12 +65,12 @@ describe("Phase 5.0 subjective intelligence", () => {
       .toBeLessThan(staleProfile.estimates.military.confidence);
   });
 
-  test("belief state is informational only and cannot alter authoritative history", () => {
-    const control = createInitialWorld(77);
-    const distorted = createInitialWorld(77);
-    const observer = distorted.countries[0]!;
-    const subject = distorted.countries[1]!;
-    const profile = getCountryIntelligence(distorted, observer.id, subject.id)!;
+  test("belief state cannot directly overwrite authoritative truth", () => {
+    const world = createInitialWorld(77);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const before = truthOnly(world);
 
     for (const estimate of Object.values(profile.estimates)) {
       estimate.value = 999_999;
@@ -74,12 +80,9 @@ describe("Phase 5.0 subjective intelligence", () => {
       estimate.observedWeek = -50_000;
     }
 
-    for (let week = 0; week < 52 * 5; week++) {
-      tickWeek(control);
-      tickWeek(distorted);
-    }
-
-    expect(truthOnly(distorted)).toEqual(truthOnly(control));
+    // Phase 5.1+ deliberately lets belief affect later decisions. The invariant
+    // is narrower: changing belief cannot itself mutate authoritative reality.
+    expect(truthOnly(world)).toEqual(before);
   });
 
   test("read-only intelligence lookup never repairs or mutates missing belief state", () => {
@@ -92,6 +95,55 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(getCountryIntelligence(world, observer.id, subject.id)).toBeNull();
     expect(world).toEqual(before);
     expect((world as Partial<WorldState>).intelligence).toBeUndefined();
+  });
+
+  test("weekly policy repairs legacy economic intelligence before the first decision tick", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const militaryBefore = structuredClone(profile.estimates.military);
+    const legacyEstimates = profile.estimates as Partial<typeof profile.estimates>;
+
+    delete legacyEstimates.foodExportable;
+    delete legacyEstimates.energyExportable;
+    delete legacyEstimates.metalsExportable;
+    delete legacyEstimates.goodsExportable;
+
+    tickWeek(world);
+    const repaired = getCountryIntelligence(world, observer.id, subject.id)!;
+
+    expect(repaired.estimates.foodExportable).toBeDefined();
+    expect(repaired.estimates.energyExportable).toBeDefined();
+    expect(repaired.estimates.metalsExportable).toBeDefined();
+    expect(repaired.estimates.goodsExportable).toBeDefined();
+    expect(repaired.estimates.military).toEqual(militaryBefore);
+  });
+
+  test("Phase 5.1 profiles repair missing economic signals without rewriting earlier beliefs", () => {
+    const world = createInitialWorld(1978);
+    for (let week = 0; week < 21; week++) tickWeek(world);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const militaryBefore = structuredClone(profile.estimates.military);
+    const truthBefore = truthOnly(world);
+    const legacyEstimates = profile.estimates as Partial<typeof profile.estimates>;
+
+    delete legacyEstimates.foodExportable;
+    delete legacyEstimates.energyExportable;
+    delete legacyEstimates.metalsExportable;
+    delete legacyEstimates.goodsExportable;
+
+    ensureIntelligence(world);
+    const repaired = getCountryIntelligence(world, observer.id, subject.id)!;
+
+    expect(repaired.estimates.foodExportable).toBeDefined();
+    expect(repaired.estimates.energyExportable).toBeDefined();
+    expect(repaired.estimates.metalsExportable).toBeDefined();
+    expect(repaired.estimates.goodsExportable).toBeDefined();
+    expect(repaired.estimates.military).toEqual(militaryBefore);
+    expect(truthOnly(world)).toEqual(truthBefore);
   });
 
   test("older serialized worlds rebuild missing intelligence without rewriting truth", () => {

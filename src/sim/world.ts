@@ -1,14 +1,15 @@
-import { assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
+import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
 import { ensureDiplomaticState, nonAggressionBreachPressure, treatyWithdrawalDecision } from "./diplomacy";
-import { initializeIntelligence, updateIntelligence } from "./intelligence";
+import { ensureIntelligence, initializeIntelligence, updateIntelligence } from "./intelligence";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
 import { breachNonAggressionForWar, getActiveTreaties, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, requestTreatyWithdrawal, resetTreatyWeeklyUsage } from "./treaties";
+import { getSellerExportableSurplus } from "./trade";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -180,6 +181,7 @@ function runTrade(world: WorldState) {
     const partner = chooseTradePartner(world, buyer, intent.resource);
     if (!partner) continue;
     const { seller, route } = partner;
+    const tradeAssessment = assessTradePartnerFromIntelligence(world, buyer, seller, intent.resource);
 
     const relation = buyer.relations[seller.id];
     const sellerRelation = seller.relations[buyer.id];
@@ -189,9 +191,7 @@ function runTrade(world: WorldState) {
     if (treatyPolicy.blocked) continue;
     const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
     const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
-    const sellerReserveWeeks = getSellerReserveWeeks(seller);
-    const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
-    const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
+    const available = getSellerExportableSurplus(seller, intent.resource);
     const routeCapacity = routeRemainingCapacity(route);
     const amount = Math.min(desired, available, routeCapacity, treatyPolicy.quotaRemaining);
     const infrastructureEfficiency = 0.72 + route.level * 0.11 + route.condition / 500;
@@ -220,7 +220,10 @@ function runTrade(world: WorldState) {
       const treatyNote = treatyPolicy.tariffPct || treatyPolicy.discountPct || Number.isFinite(treatyPolicy.quotaRemaining)
         ? ` Treaty terms apply (${Math.round(treatyPolicy.tariffPct)}% tariff, ${Math.round(treatyPolicy.discountPct)}% preference).`
         : "";
-      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}`);
+      const intelligenceNote = tradeAssessment.available
+        ? ` Buyer intelligence estimated ~${Math.round(tradeAssessment.perceivedExportableSurplus)} exportable units at ${Math.round(tradeAssessment.intelligenceConfidence)}% confidence from ${tradeAssessment.intelligenceAgeWeeks}-week-old reporting.`
+        : "";
+      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}${intelligenceNote}`);
     }
   }
 }
@@ -453,6 +456,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
   ensureDiplomaticState(world);
+  ensureIntelligence(world);
   expireTruces(world);
   resetRouteUsage(world);
   resetTreatyWeeklyUsage(world);

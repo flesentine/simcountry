@@ -1,8 +1,10 @@
 import type { Country, Resource, TradeRoute, WorldState } from "../model/types";
 import { RESOURCE_KEYS } from "../model/types";
 import { getBestTradeRoute, routeRemainingCapacity } from "../sim/geography";
-import { effectiveIntelConfidence, getCountryIntelligence } from "../sim/intelligence";
+import { effectiveIntelConfidence, getCountryIntelligence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "../sim/intelligence";
 import { getTreatyTradePolicy } from "../sim/treaties";
+
+export { getSellerReserveWeeks } from "../sim/trade";
 
 export interface TradeIntent {
   buyerId: string;
@@ -13,10 +15,6 @@ export interface TradeIntent {
 export interface TradePartner {
   seller: Country;
   route: TradeRoute;
-}
-
-export function getSellerReserveWeeks(seller: Country) {
-  return 11.5 - seller.policy.commerce / 30 - seller.government.agenda.tradeOpenness / 80;
 }
 
 export function getTradeIntent(country: Country): TradeIntent | null {
@@ -37,6 +35,57 @@ export function getTradeIntent(country: Country): TradeIntent | null {
   return best;
 }
 
+export interface TradeIntelligenceAssessment {
+  available: boolean;
+  perceivedExportableSurplus: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+  intelligenceObservedWeek: number;
+}
+
+export function assessTradePartnerFromIntelligence(
+  world: WorldState,
+  buyer: Country,
+  seller: Country,
+  resource: Resource,
+): TradeIntelligenceAssessment {
+  const profile = getCountryIntelligence(world, buyer.id, seller.id);
+  const estimate = profile?.estimates[RESOURCE_EXPORT_INTELLIGENCE_METRIC[resource]];
+  if (!profile || !estimate) {
+    return {
+      available: false,
+      perceivedExportableSurplus: 0,
+      intelligenceConfidence: 0,
+      intelligenceAgeWeeks: 0,
+      intelligenceObservedWeek: world.week,
+    };
+  }
+
+  const intelligenceConfidence = effectiveIntelConfidence(estimate, world.week);
+  const intelligenceAgeWeeks = Math.max(0, world.week - estimate.observedWeek);
+  const riskTolerance = clamp01(
+    (buyer.policy.risk * 0.65 + buyer.government.leader.traits.riskTolerance * 0.35) / 100,
+  );
+  const uncertainty = clamp01(1 - intelligenceConfidence / 100);
+
+  // A buyer exposed to stale or weak supplier intelligence should hedge
+  // downward toward the observed low bound. Risk-tolerant governments accept
+  // more of that uncertainty and act closer to the central estimate.
+  const lowerBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+  const perceivedExportableSurplus = Math.max(
+    0,
+    estimate.value - Math.max(0, estimate.value - estimate.low) * lowerBoundShare,
+  );
+
+  return {
+    available: true,
+    perceivedExportableSurplus,
+    intelligenceConfidence,
+    intelligenceAgeWeeks,
+    intelligenceObservedWeek: estimate.observedWeek,
+  };
+}
+
 export function chooseTradePartner(world: WorldState, buyer: Country, resource: Resource): TradePartner | null {
   const tradeAgenda = buyer.government.agenda.tradeOpenness;
   const foreignCompetence = buyer.government.ministries.foreign.competence;
@@ -47,9 +96,10 @@ export function chooseTradePartner(world: WorldState, buyer: Country, resource: 
       if (!route) return null;
       const treatyPolicy = getTreatyTradePolicy(world, buyer.id, seller.id, resource);
       if (treatyPolicy.blocked || treatyPolicy.quotaRemaining < 2) return null;
+      const assessment = assessTradePartnerFromIntelligence(world, buyer, seller, resource);
+      if (!assessment.available) return null;
       const relation = buyer.relations[seller.id];
-      const sellerReserveWeeks = getSellerReserveWeeks(seller);
-      const surplus = seller.resources[resource] - seller.needs[resource] * sellerReserveWeeks;
+      const surplus = assessment.perceivedExportableSurplus;
       const relationship = relation ? relation.trust - relation.tension * 0.6 : 0;
       const surplusWeight = 0.68 + buyer.policy.commerce / 350 + tradeAgenda / 500;
       const relationshipWeight = 0.34 + buyer.policy.diplomacy / 230 + foreignCompetence / 600;

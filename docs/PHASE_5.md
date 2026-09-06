@@ -192,3 +192,78 @@ The 100-seed × 500-year stress population additionally requires:
 - at least one war begins after materially overestimating defender effective power
 
 The architectural boundary remains: **belief may cause an action proposal, but the deterministic world engine owns the physical consequences.**
+
+## Phase 5.2 — Belief-Driven Trade Selection
+
+Phase 5.2 migrates autonomous supplier selection to the buyer's subjective economic picture while keeping physical settlement authoritative.
+
+### Economic intelligence
+
+Each foreign profile now carries an imperfect estimate of currently exportable supply for:
+
+- food
+- energy
+- metals
+- goods
+
+"Exportable" means the amount that would remain above the seller's authoritative reserve policy at the time of observation. The observer does not receive the seller's exact inventory, needs, commerce policy or cabinet trade posture. It receives a noisy, confidence-bounded estimate of the economically relevant result.
+
+Economic collection uses the same deterministic intelligence-only RNG as the Phase 5.0 kernel, with additional signal from Trade Ministry competence and commercial-policy investment. These observations refresh on the same partial quarterly cadence and can become stale.
+
+### Supplier choice is no longer omniscient
+
+A buyer still knows its own shortage, treasury and domestic policy exactly.
+
+When selecting a foreign supplier, however, the buyer no longer reads the candidate seller's live resource stock, needs or reserve preference. It scores reachable candidates from:
+
+- perceived exportable supply
+- effective intelligence confidence and age
+- bilateral relationship state
+- observable route capacity and distance
+- active treaty quota, tariff and preference terms
+
+Missing supplier intelligence removes that candidate rather than falling back to hidden inventory.
+
+### Uncertainty and risk tolerance
+
+Weak or stale supplier intelligence is hedged downward toward the observed low bound.
+
+Cautious governments therefore plan against a smaller perceived exportable surplus, while risk-tolerant governments act closer to the central estimate. Risk tolerance does not invent extra goods; it changes how much uncertainty the buyer is willing to accept before proposing the trade.
+
+### Truth still settles the trade
+
+Belief chooses **who to ask**. The authoritative engine still decides **what can actually move**.
+
+After a supplier is selected, settlement rechecks the seller's true:
+
+- resource inventory
+- domestic reserve requirement
+- route capacity
+- treaty quota
+- buyer affordability
+
+If the believed surplus was wrong, the transaction can shrink or fail. Intelligence can therefore cause a bad commercial decision, but it can never create stock, bypass a blockade, exceed treaty capacity or mint treasury.
+
+Quarterly trade-history entries include the buyer's perceived exportable supply, confidence and intelligence age so later historian work can distinguish the decision-time belief from the actual settlement.
+
+### Observer UI
+
+The foreign-intelligence inspector now exposes estimated exportable food, energy, metals and goods supply for each observed country alongside military, readiness and treasury intelligence.
+
+### Phase 5.2 verification contract
+
+Regression coverage requires:
+
+- changing hidden seller inventory while holding stored economic belief fixed does not change supplier choice
+- missing supplier intelligence cannot be replaced by an omniscient stock lookup
+- cautious buyers hedge stale low-confidence economic intelligence farther toward the low bound than risk-tolerant buyers
+- older Phase 5.0/5.1 serialized profiles repair missing economic signals without rewriting earlier beliefs or authoritative truth
+
+The 100-seed × 500-year stress population additionally requires:
+
+- exportable-supply intelligence remains materially imperfect
+- economic estimates remain finite, bounded and non-negative
+- belief-driven supplier selection still produces real completed trade
+
+The architectural boundary remains: **belief proposes the commercial counterparty; authoritative state validates and settles the transfer.**
+

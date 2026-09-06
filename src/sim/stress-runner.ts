@@ -1,6 +1,7 @@
 import { getCredibility, memorySalience, treatyWithdrawalDecision } from "./diplomacy";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
+import { getSellerExportableSurplus } from "./trade";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./world";
 
 const YEARS = 500;
@@ -64,6 +65,8 @@ const finalDissent: number[] = [];
 let intelligenceProfiles = 0;
 let staleIntelligenceProfiles = 0;
 let imperfectMilitaryEstimates = 0;
+let imperfectEconomicAvailabilityEstimates = 0;
+let successfulBeliefDrivenTradeEvents = 0;
 const intelligenceConfidence: number[] = [];
 let beliefDrivenWarStarts = 0;
 let warsUnderestimatingDefenderPower = 0;
@@ -389,6 +392,8 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     finalDissent.push(country.government.dissent);
   }
 
+  successfulBeliefDrivenTradeEvents += world.events.filter((event) => event.kind === "trade").length;
+
   invariant(Object.keys(world.intelligence.byObserver).length === world.countries.length, `seed ${seed}: intelligence observer count diverged`);
   for (const observer of world.countries) {
     const profiles = world.intelligence.byObserver[observer.id];
@@ -404,6 +409,17 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       if (age > 13) staleIntelligenceProfiles++;
       const subject = world.countries.find((country) => country.id === subjectId)!;
       if (Math.abs(profile.estimates.military.value - subject.military) > 0.05) imperfectMilitaryEstimates++;
+      if (Math.abs(profile.estimates.foodExportable.value - getSellerExportableSurplus(subject, "food")) > 0.05) {
+        imperfectEconomicAvailabilityEstimates++;
+      }
+      for (const economicEstimate of [
+        profile.estimates.foodExportable,
+        profile.estimates.energyExportable,
+        profile.estimates.metalsExportable,
+        profile.estimates.goodsExportable,
+      ]) {
+        invariant(economicEstimate.low >= 0, `seed ${seed}: negative exportable-supply intelligence`);
+      }
       for (const estimate of Object.values(profile.estimates)) {
         invariant([estimate.value, estimate.low, estimate.high, estimate.confidence, estimate.observedWeek].every(Number.isFinite), `seed ${seed}: non-finite intelligence estimate`);
         invariant(estimate.low <= estimate.value && estimate.value <= estimate.high, `seed ${seed}: intelligence interval does not contain estimate`);
@@ -512,6 +528,8 @@ const summary = {
   intelligenceProfiles,
   staleIntelligenceProfiles,
   imperfectMilitaryEstimates,
+  imperfectEconomicAvailabilityEstimates,
+  successfulBeliefDrivenTradeEvents,
   avgIntelligenceConfidence: average(intelligenceConfidence),
   beliefDrivenWarStarts,
   warsUnderestimatingDefenderPower,
@@ -562,6 +580,8 @@ invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
 invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile count ${intelligenceProfiles} did not cover every foreign pair`);
 invariant(staleIntelligenceProfiles > 0, "intelligence never became stale");
 invariant(imperfectMilitaryEstimates > intelligenceProfiles * 0.5, "foreign military intelligence became implausibly omniscient");
+invariant(imperfectEconomicAvailabilityEstimates > intelligenceProfiles * 0.5, "foreign exportable-supply intelligence became implausibly omniscient");
+invariant(successfulBeliefDrivenTradeEvents > SEEDS.length, "belief-driven trade selection stopped producing successful trade");
 invariant(beliefDrivenWarStarts > 0, "no autonomous war was authorized from subjective intelligence");
 invariant(warsUnderestimatingDefenderPower > 0, "no autonomous war began after underestimating defender power");
 invariant(warsOverestimatingDefenderPower > 0, "no autonomous war began after overestimating defender power");

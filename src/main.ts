@@ -3,7 +3,7 @@ import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
 import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { negotiationSummaryFor } from "./sim/negotiation";
-import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence } from "./sim/intelligence";
+import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./sim/intelligence";
 import { treatySummaryFor } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
@@ -235,9 +235,13 @@ function renderForeignIntelligence(selected: Country) {
       const readiness = profile.estimates.readiness;
       const confidence = intelligenceProfileConfidence(profile, world.week);
       const age = intelligenceProfileAge(profile, world.week);
+      const exportability = RESOURCE_KEYS
+        .map((resource) => `${resource} ~${fmt(profile.estimates[RESOURCE_EXPORT_INTELLIGENCE_METRIC[resource]].value, 1)}`)
+        .join(" · ");
       return `<div>
         <span>${subject.name}</span>
         <small>military ~${fmt(military.value, 1)} (${fmt(military.low, 1)}–${fmt(military.high, 1)}) · readiness ~${fmt(readiness.value)}%</small>
+        <small>exportable supply est. ${exportability}</small>
         <small>treasury ~$ ${fmt(treasury.value, 1)}B · confidence ${fmt(confidence)}% · observed ${age === 0 ? "this week" : `${age}w ago`}</small>
       </div>`;
     })

@@ -102,7 +102,16 @@ export interface Country {
   relations: Record<string, Relation>;
 }
 
-export type IntelligenceMetric = "population" | "treasury" | "military" | "readiness" | "stability";
+export type IntelligenceMetric =
+  | "population"
+  | "treasury"
+  | "military"
+  | "readiness"
+  | "stability"
+  | "foodExportable"
+  | "energyExportable"
+  | "metalsExportable"
+  | "goodsExportable";
 
 export interface IntelligenceEstimate {
   value: number;

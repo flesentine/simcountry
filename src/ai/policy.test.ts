@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { assessWarFromIntelligence, nonAggressionFeasibilityBonus } from "./policy";
+import {
+  assessTradePartnerFromIntelligence,
+  assessWarFromIntelligence,
+  chooseTradePartner,
+  nonAggressionFeasibilityBonus,
+} from "./policy";
+import { getBestTradeRoute } from "../sim/geography";
 import { getCountryIntelligence } from "../sim/intelligence";
 import { createInitialWorld } from "../sim/world";
 
@@ -102,5 +108,99 @@ describe("Phase 5.1 belief-driven war assessment", () => {
 
     expect(cautious.perceivedDefenderMilitary).toBeGreaterThan(riskTolerant.perceivedDefenderMilitary);
     expect(cautious.perceivedDefenderReadiness).toBeGreaterThan(riskTolerant.perceivedDefenderReadiness);
+  });
+});
+
+
+function prepareTradeCase(seed = 1978) {
+  const world = createInitialWorld(seed);
+  const buyer = world.countries[0]!;
+  const sellers = world.countries
+    .slice(1)
+    .filter((seller) => Boolean(getBestTradeRoute(world, buyer.id, seller.id)))
+    .slice(0, 2);
+  expect(sellers).toHaveLength(2);
+
+  for (const seller of world.countries.filter((country) => country.id !== buyer.id)) {
+    buyer.relations[seller.id]!.trust = 50;
+    buyer.relations[seller.id]!.tension = 20;
+    const profile = getCountryIntelligence(world, buyer.id, seller.id)!;
+    profile.estimates.foodExportable = {
+      value: 0,
+      low: 0,
+      high: 0,
+      confidence: 90,
+      observedWeek: world.week,
+    };
+  }
+
+  return { world, buyer, first: sellers[0]!, second: sellers[1]! };
+}
+
+describe("Phase 5.2 belief-driven trade selection", () => {
+  test("supplier choice follows stored exportable-supply belief rather than hidden seller inventory", () => {
+    const { world, buyer, first, second } = prepareTradeCase();
+    const firstIntel = getCountryIntelligence(world, buyer.id, first.id)!;
+    const secondIntel = getCountryIntelligence(world, buyer.id, second.id)!;
+    firstIntel.estimates.foodExportable = { value: 500, low: 460, high: 540, confidence: 92, observedWeek: world.week };
+    secondIntel.estimates.foodExportable = { value: 30, low: 25, high: 35, confidence: 92, observedWeek: world.week };
+
+    const before = chooseTradePartner(world, buyer, "food");
+    expect(before?.seller.id).toBe(first.id);
+
+    first.resources.food = 0;
+    first.needs.food = 100;
+    second.resources.food = 100_000;
+    second.needs.food = 0;
+
+    const after = chooseTradePartner(world, buyer, "food");
+    expect(after?.seller.id).toBe(first.id);
+  });
+
+  test("missing supplier intelligence blocks that candidate instead of revealing hidden stock", () => {
+    const { world, buyer, first, second } = prepareTradeCase();
+    getCountryIntelligence(world, buyer.id, first.id)!.estimates.foodExportable = {
+      value: 500,
+      low: 470,
+      high: 530,
+      confidence: 92,
+      observedWeek: world.week,
+    };
+    getCountryIntelligence(world, buyer.id, second.id)!.estimates.foodExportable = {
+      value: 300,
+      low: 280,
+      high: 320,
+      confidence: 92,
+      observedWeek: world.week,
+    };
+
+    delete world.intelligence.byObserver[buyer.id]![first.id];
+    first.resources.food = 100_000;
+
+    expect(chooseTradePartner(world, buyer, "food")?.seller.id).toBe(second.id);
+  });
+
+  test("cautious buyers hedge stale low-confidence supplier intelligence toward the low bound", () => {
+    const { world, buyer, first } = prepareTradeCase();
+    const estimate = getCountryIntelligence(world, buyer.id, first.id)!.estimates.foodExportable;
+    Object.assign(estimate, {
+      value: 100,
+      low: 20,
+      high: 140,
+      confidence: 30,
+      observedWeek: world.week - 52,
+    });
+
+    buyer.policy.risk = 0;
+    buyer.government.leader.traits.riskTolerance = 0;
+    const cautious = assessTradePartnerFromIntelligence(world, buyer, first, "food");
+
+    buyer.policy.risk = 100;
+    buyer.government.leader.traits.riskTolerance = 100;
+    const riskTolerant = assessTradePartnerFromIntelligence(world, buyer, first, "food");
+
+    expect(cautious.available).toBe(true);
+    expect(cautious.perceivedExportableSurplus).toBeLessThan(riskTolerant.perceivedExportableSurplus);
+    expect(cautious.intelligenceAgeWeeks).toBe(52);
   });
 });

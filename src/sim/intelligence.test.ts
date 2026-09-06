@@ -100,6 +100,29 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect((world as Partial<WorldState>).intelligence).toBeUndefined();
   });
 
+  test("weekly policy repairs legacy economic intelligence before the first decision tick", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const militaryBefore = structuredClone(profile.estimates.military);
+    const legacyEstimates = profile.estimates as Partial<typeof profile.estimates>;
+
+    delete legacyEstimates.foodExportable;
+    delete legacyEstimates.energyExportable;
+    delete legacyEstimates.metalsExportable;
+    delete legacyEstimates.goodsExportable;
+
+    tickWeek(world);
+    const repaired = getCountryIntelligence(world, observer.id, subject.id)!;
+
+    expect(repaired.estimates.foodExportable).toBeDefined();
+    expect(repaired.estimates.energyExportable).toBeDefined();
+    expect(repaired.estimates.metalsExportable).toBeDefined();
+    expect(repaired.estimates.goodsExportable).toBeDefined();
+    expect(repaired.estimates.military).toEqual(militaryBefore);
+  });
+
   test("Phase 5.1 profiles repair missing economic signals without rewriting earlier beliefs", () => {
     const world = createInitialWorld(1978);
     for (let week = 0; week < 21; week++) tickWeek(world);

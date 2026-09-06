@@ -1,4 +1,4 @@
-import { assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
+import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -180,6 +180,7 @@ function runTrade(world: WorldState) {
     const partner = chooseTradePartner(world, buyer, intent.resource);
     if (!partner) continue;
     const { seller, route } = partner;
+    const tradeAssessment = assessTradePartnerFromIntelligence(world, buyer, seller, intent.resource);
 
     const relation = buyer.relations[seller.id];
     const sellerRelation = seller.relations[buyer.id];
@@ -220,7 +221,10 @@ function runTrade(world: WorldState) {
       const treatyNote = treatyPolicy.tariffPct || treatyPolicy.discountPct || Number.isFinite(treatyPolicy.quotaRemaining)
         ? ` Treaty terms apply (${Math.round(treatyPolicy.tariffPct)}% tariff, ${Math.round(treatyPolicy.discountPct)}% preference).`
         : "";
-      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}`);
+      const intelligenceNote = tradeAssessment.available
+        ? ` Buyer intelligence estimated ~${Math.round(tradeAssessment.perceivedExportableSurplus)} exportable units at ${Math.round(tradeAssessment.intelligenceConfidence)}% confidence from ${tradeAssessment.intelligenceAgeWeeks}-week-old reporting.`
+        : "";
+      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}${intelligenceNote}`);
     }
   }
 }

@@ -3,7 +3,7 @@ import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce,
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
 import { ensureDiplomaticState, nonAggressionBreachPressure, treatyWithdrawalDecision } from "./diplomacy";
-import { initializeIntelligence, updateIntelligence } from "./intelligence";
+import { ensureIntelligence, initializeIntelligence, updateIntelligence } from "./intelligence";
 import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
@@ -456,6 +456,7 @@ function runWars(world: WorldState, rng: ReturnType<typeof createRng>) {
 export function tickWeek(world: WorldState): WorldState {
   world.week += 1;
   ensureDiplomaticState(world);
+  ensureIntelligence(world);
   expireTruces(world);
   resetRouteUsage(world);
   resetTreatyWeeklyUsage(world);

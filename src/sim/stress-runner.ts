@@ -49,6 +49,8 @@ let rejectedNegotiations = 0;
 let counterProposals = 0;
 let beliefDrivenEconomicNegotiations = 0;
 let beliefDrivenEconomicNegotiationEvents = 0;
+let beliefDrivenLoanEvaluations = 0;
+let beliefDrivenLoanEvaluationEvents = 0;
 let worldsWithNegotiations = 0;
 let worldsWithAcceptedNegotiations = 0;
 let maxNegotiationsPerWorld = 0;
@@ -350,6 +352,19 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       && event.text.includes("Intelligence estimated")
       && (event.text.includes("opens trade-access talks") || event.text.includes("opens financing talks")),
   ).length;
+  for (const proposal of world.proposals) {
+    if (proposal.motive !== "financing") continue;
+    const loan = proposal.draft.clauses.find((clause) => clause.kind === "loan");
+    if (!loan || loan.kind !== "loan") continue;
+    beliefDrivenLoanEvaluations += proposal.evaluations.filter(
+      (evaluation) => evaluation.countryId === loan.creditorId,
+    ).length;
+  }
+  beliefDrivenLoanEvaluationEvents += world.events.filter(
+    (event) => event.kind === "diplomacy"
+      && (event.text.includes("Creditor intelligence assessed")
+        || event.text.includes("applies maximum repayment-risk stress")),
+  ).length;
   if (world.negotiations.length > 0) worldsWithNegotiations++;
   if (world.negotiations.some((negotiation) => negotiation.status === "accepted")) worldsWithAcceptedNegotiations++;
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);
@@ -521,6 +536,8 @@ const summary = {
   counterProposals,
   beliefDrivenEconomicNegotiations,
   beliefDrivenEconomicNegotiationEvents,
+  beliefDrivenLoanEvaluations,
+  beliefDrivenLoanEvaluationEvents,
   worldsWithNegotiations,
   worldsWithAcceptedNegotiations,
   maxNegotiationsPerWorld,
@@ -563,6 +580,8 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(beliefDrivenEconomicNegotiations > SEEDS.length, "belief-driven economic negotiation initiation stopped occurring");
 invariant(beliefDrivenEconomicNegotiationEvents > SEEDS.length, "belief-driven economic negotiation history lost its intelligence provenance");
+invariant(beliefDrivenLoanEvaluations > SEEDS.length, "creditor cabinets stopped evaluating financing proposals from subjective debtor intelligence");
+invariant(beliefDrivenLoanEvaluationEvents > SEEDS.length, "creditor loan-intelligence provenance stopped reaching world history");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
 invariant(deliberateTreatyViolations < acceptedNegotiations * 0.00025, `${deliberateTreatyViolations} deliberate treaty breaches are too frequent relative to ${acceptedNegotiations} accepted agreements`);

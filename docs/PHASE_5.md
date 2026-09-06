@@ -168,8 +168,10 @@ Still authoritative/omniscient for now:
 - battlefield attrition and logistics after war starts
 - trade partner selection
 - treaty negotiation and cabinet evaluation
-- treaty breach/withdrawal policy
+- lawful treaty withdrawal and treaty-obligation enforcement
 - world-history visibility and map fog
+
+The narrow exception is deliberate non-aggression breach feasibility: 5.1 lets the attacker's subjective military assessment contribute the bounded feasibility bonus described above.
 
 Those domains will migrate separately so each belief-driven change can be regression-gated.
 

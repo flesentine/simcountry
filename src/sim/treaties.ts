@@ -219,7 +219,19 @@ function obligationLastDueWeek(effectiveWeek: number, total: number, installment
   return effectiveWeek + firstDelay + Math.max(0, payments - 1) * intervalWeeks;
 }
 
-export function validateTreatyDraft(world: WorldState, draft: TreatyDraft) {
+export interface TreatyValidationOptions {
+  // Undefined means execution-time validation: verify every loan creditor can
+  // actually fund escrow. During proposal formation, a government may verify
+  // its own funding capacity but must not inspect a foreign creditor's hidden
+  // treasury merely to decide whether talks are allowed to open.
+  fundingObserverId?: string | null;
+}
+
+export function validateTreatyDraft(
+  world: WorldState,
+  draft: TreatyDraft,
+  options: TreatyValidationOptions = {},
+) {
   const errors: string[] = [];
   const [a, b] = draft.parties;
   const partySet = new Set(draft.parties);
@@ -285,8 +297,10 @@ export function validateTreatyDraft(world: WorldState, draft: TreatyDraft) {
     escrowByCountry[clause.creditorId] = (escrowByCountry[clause.creditorId] ?? 0) + clause.principal;
   }
   for (const [countryId, amount] of Object.entries(escrowByCountry)) {
+    const shouldCheckFunding = options.fundingObserverId === undefined || options.fundingObserverId === countryId;
+    if (!shouldCheckFunding) continue;
     const creditor = countryById(world, countryId);
-    if (creditor && creditor.treasury + 1e-9 < amount) errors.push(`${creditor.name} cannot fund $${round(amount)}B of treaty loan escrow`);
+    if (creditor && creditor.treasury + 1e-9 < amount) errors.push(`${creditor.name} cannot fund ${round(amount)}B of treaty loan escrow`);
   }
 
   return [...new Set(errors)];

@@ -267,3 +267,79 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary remains: **belief proposes the commercial counterparty; authoritative state validates and settles the transfer.**
 
+## Phase 5.3 — Belief-Driven Negotiation Initiation
+
+Phase 5.3 migrates the **opening of economic diplomatic negotiations** from hidden foreign truth to the proposer's subjective intelligence.
+
+The scope is intentionally narrower than full treaty evaluation. It changes how a government decides **which foreign country appears able to supply a needed resource or extend financing**, and how the opening package is sized. Recipient cabinet acceptance remains a later migration so initiation and acceptance can be regression-gated separately.
+
+### Trade-access talks use perceived export capacity
+
+A proposer still knows its own resource stock and needs exactly.
+
+When searching for a foreign trade partner, however, it no longer compares its shortage against the candidate's live resource stock or domestic needs. It uses the observer-specific exportable-supply estimates introduced in Phase 5.2.
+
+For each resource, the proposer considers:
+
+- its own authoritative weeks of supply
+- perceived foreign exportable surplus
+- effective intelligence confidence and age
+- its own risk tolerance
+
+Weak or stale supplier intelligence is hedged downward toward the estimate's low bound. Missing foreign intelligence removes that economic opportunity instead of revealing hidden stock.
+
+The resulting treaty draft can therefore target the wrong supplier or the wrong resource. That is an intentional consequence of imperfect belief.
+
+### Financing talks use perceived creditor capacity
+
+A cash-constrained government knows its own treasury and population exactly.
+
+Before approaching a potential lender, it now estimates the foreign country's:
+
+- treasury
+- population
+- treasury per capita
+- treasury apparently available above a conservative reserve
+
+Treasury is hedged downward and population upward when intelligence is weak or stale, so cautious borrowers do not treat an uncertain foreign balance sheet as guaranteed lending capacity. Risk-tolerant governments act closer to the central estimate.
+
+Loan principal in an opening proposal is sized from that perceived capacity rather than the prospective creditor's authoritative treasury.
+
+### Truth still validates execution
+
+Belief determines whether talks open and what economic package is proposed.
+
+The treaty system remains authoritative. If the foreign country's real treasury, treaty constraints or other execution conditions cannot support the proposed agreement by signature time, normal validation can reject or constrain the result. Belief never transfers money or goods directly.
+
+### Decision provenance
+
+Autonomous opening-history entries now narrate the economic intelligence basis for trade-access and financing talks, including confidence and observation age.
+
+### Scope boundary
+
+Phase 5.3 does **not** yet migrate every cabinet evaluation to subjective belief.
+
+Still deferred:
+
+- a recipient creditor's evaluation of a debtor's repayment risk
+- broader treaty acceptance/counteroffer valuation where foreign hidden state is consulted
+- active spies and reconnaissance
+- deception
+- secret-agreement visibility
+- map fog and incomplete world-history visibility
+
+Those should move in separate checkpoints so a failed causal assumption can be isolated.
+
+### Phase 5.3 verification contract
+
+Regression coverage requires:
+
+- changing a candidate supplier's hidden stock while holding the proposer's economic belief fixed cannot change the perceived trade opportunity
+- changing a prospective creditor's hidden treasury/population while holding the borrower's fiscal belief fixed cannot change perceived lending capacity
+- missing foreign intelligence blocks economic negotiation opportunity instead of falling back to truth
+- autonomous trade-access proposals are tied to perceived rather than authoritative resource complementarity
+
+The 100-seed × 500-year stress population additionally requires belief-driven economic negotiation initiation to remain observable across the population.
+
+The architectural boundary remains: **belief decides whom to approach and what to propose; authoritative treaty machinery decides what can actually be executed.**
+

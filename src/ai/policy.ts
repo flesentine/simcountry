@@ -1,6 +1,7 @@
 import type { Country, Resource, TradeRoute, WorldState } from "../model/types";
 import { RESOURCE_KEYS } from "../model/types";
 import { getBestTradeRoute, routeRemainingCapacity } from "../sim/geography";
+import { effectiveIntelConfidence, getCountryIntelligence } from "../sim/intelligence";
 import { getTreatyTradePolicy } from "../sim/treaties";
 
 export interface TradeIntent {
@@ -66,12 +67,29 @@ export function chooseTradePartner(world: WorldState, buyer: Country, resource: 
   return best ? { seller: best.seller, route: best.route } : null;
 }
 
-export function warAppetite(attacker: Country, defender: Country): number {
-  const relation = attacker.relations[defender.id];
+export interface WarIntelligenceAssessment {
+  appetite: number;
+  available: boolean;
+  perceivedDefenderMilitary: number;
+  perceivedDefenderReadiness: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+  intelligenceObservedWeek: number;
+}
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+export function warAppetiteFromPerceivedStrength(
+  attacker: Country,
+  defenderId: string,
+  perceivedDefenderMilitary: number,
+  perceivedDefenderReadiness: number,
+) {
+  const relation = attacker.relations[defenderId];
   const government = attacker.government;
   if (!relation || attacker.readiness < 22 || attacker.stability < 28 || government.legitimacy < 20) return 0;
   const powerRatio = (attacker.military * (0.6 + attacker.readiness / 100)) /
-    Math.max(1, defender.military * (0.6 + defender.readiness / 100));
+    Math.max(1, perceivedDefenderMilitary * (0.6 + perceivedDefenderReadiness / 100));
   const grievance = Math.max(0, relation.tension - relation.trust * 0.35) / 100;
   const confidence = Math.max(0, Math.min(1.5, powerRatio - 0.7));
   const readinessFactor = 0.35 + attacker.readiness / 100 * 0.65;
@@ -81,4 +99,68 @@ export function warAppetite(attacker: Country, defender: Country): number {
   const leaderDrive = 0.90 + (government.leader.traits.ambition + government.leader.traits.nationalism) / 1200;
   return grievance * confidence * (0.25 + attacker.policy.expansionism / 100) *
     (0.3 + attacker.policy.risk / 100) * readinessFactor * cabinetSupport * cohesionFactor * defenseCompetence * leaderDrive;
+}
+
+export function nonAggressionFeasibilityBonus(attacker: Country, assessment: WarIntelligenceAssessment) {
+  if (!assessment.available) return 0;
+  const attackerPower = attacker.military * (0.6 + attacker.readiness / 100);
+  const perceivedDefenderPower = assessment.perceivedDefenderMilitary * (0.6 + assessment.perceivedDefenderReadiness / 100);
+  const perceivedRatio = attackerPower / Math.max(1, perceivedDefenderPower);
+  return Math.max(0, Math.min(12, (perceivedRatio - 1) * 8));
+}
+
+export function assessWarFromIntelligence(world: WorldState, attacker: Country, defender: Country): WarIntelligenceAssessment {
+  const profile = getCountryIntelligence(world, attacker.id, defender.id);
+  if (!profile) {
+    return {
+      appetite: 0,
+      available: false,
+      perceivedDefenderMilitary: 0,
+      perceivedDefenderReadiness: 0,
+      intelligenceConfidence: 0,
+      intelligenceAgeWeeks: 0,
+      intelligenceObservedWeek: world.week,
+    };
+  }
+
+  const military = profile.estimates.military;
+  const readiness = profile.estimates.readiness;
+  const militaryConfidence = effectiveIntelConfidence(military, world.week);
+  const readinessConfidence = effectiveIntelConfidence(readiness, world.week);
+  const intelligenceConfidence = (militaryConfidence + readinessConfidence) / 2;
+  const intelligenceObservedWeek = Math.min(military.observedWeek, readiness.observedWeek);
+  const intelligenceAgeWeeks = Math.max(0, world.week - intelligenceObservedWeek);
+
+  // Low-confidence intelligence should not be treated as a precise point
+  // estimate. Cautious governments hedge toward the observed upper bound;
+  // risk-tolerant governments act closer to the central estimate.
+  const riskTolerance = clamp01(
+    (attacker.policy.risk * 0.65 + attacker.government.leader.traits.riskTolerance * 0.35) / 100,
+  );
+  const uncertainty = clamp01(1 - intelligenceConfidence / 100);
+  const upperBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+
+  const perceivedDefenderMilitary = Math.max(
+    0,
+    military.value + Math.max(0, military.high - military.value) * upperBoundShare,
+  );
+  const perceivedDefenderReadiness = Math.max(
+    0,
+    Math.min(100, readiness.value + Math.max(0, readiness.high - readiness.value) * upperBoundShare),
+  );
+
+  return {
+    appetite: warAppetiteFromPerceivedStrength(
+      attacker,
+      defender.id,
+      perceivedDefenderMilitary,
+      perceivedDefenderReadiness,
+    ),
+    available: true,
+    perceivedDefenderMilitary,
+    perceivedDefenderReadiness,
+    intelligenceConfidence,
+    intelligenceAgeWeeks,
+    intelligenceObservedWeek,
+  };
 }

@@ -65,10 +65,17 @@ let intelligenceProfiles = 0;
 let staleIntelligenceProfiles = 0;
 let imperfectMilitaryEstimates = 0;
 const intelligenceConfidence: number[] = [];
+let beliefDrivenWarStarts = 0;
+let warsUnderestimatingDefenderPower = 0;
+let warsOverestimatingDefenderPower = 0;
+let maxWarIntelligenceAge = 0;
+const warIntelligenceConfidence: number[] = [];
+const warDecisionSamples: { seed: number; week: number; attackerId: string; defenderId: string; perceivedDefenderMilitary: number; perceivedDefenderReadiness: number; intelligenceConfidence: number; intelligenceAgeWeeks: number }[] = [];
 
 for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   const seed = SEEDS[seedIndex]!;
   const world = createInitialWorld(seed);
+  let observedDiplomaticMemoryCount = world.diplomaticMemories.length;
   const fixtureRoute = world.geography.routes[0]!;
   const fixtureA = world.countries.find((country) => country.id === fixtureRoute.a)!;
   const fixtureB = world.countries.find((country) => country.id === fixtureRoute.b)!;
@@ -108,6 +115,22 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     }
     tickWeek(world);
 
+    // Credibility recovers toward baseline over time, so final-year snapshots
+    // cannot prove that a breach ever caused reputational damage. Sample only
+    // when new diplomatic memories are created; this captures the actual
+    // post-event credibility shock without adding a 56-pair scan every week.
+    for (let memoryIndex = observedDiplomaticMemoryCount; memoryIndex < world.diplomaticMemories.length; memoryIndex++) {
+      const memory = world.diplomaticMemories[memoryIndex]!;
+      if (memory.category !== "commitment_breached") continue;
+      for (const observer of world.countries) {
+        if (observer.id === memory.subjectId) continue;
+        const credibility = getCredibility(world, observer.id, memory.subjectId);
+        invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed} week ${world.week}: breach credibility out of bounds`);
+        minCredibility = Math.min(minCredibility, credibility);
+      }
+    }
+    observedDiplomaticMemoryCount = world.diplomaticMemories.length;
+
     const participants = new Set<string>();
     for (const war of world.wars) {
       invariant(!participants.has(war.a), `seed ${seed} week ${world.week}: ${war.a} entered multiple wars`);
@@ -119,6 +142,41 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(Number.isFinite(war.momentum) && war.momentum >= -100 && war.momentum <= 100, `seed ${seed} week ${world.week}: momentum out of bounds`);
       invariant(Boolean(war.frontCellId), `seed ${seed} week ${world.week}: active war lost its physical front`);
       invariant(Boolean(world.geography.cells.find((cell) => cell.id === war.frontCellId)), `seed ${seed} week ${world.week}: missing front cell ${war.frontCellId}`);
+      if (war.startWeek === world.week) {
+        invariant(Boolean(war.decisionBasis), `seed ${seed} week ${world.week}: autonomous war ${war.id} lacks intelligence provenance`);
+        const basis = war.decisionBasis!;
+        invariant(
+          [basis.perceivedDefenderMilitary, basis.perceivedDefenderReadiness, basis.intelligenceConfidence, basis.intelligenceAgeWeeks, basis.intelligenceObservedWeek].every(Number.isFinite),
+          `seed ${seed} week ${world.week}: war ${war.id} has non-finite intelligence provenance`,
+        );
+        invariant(basis.perceivedDefenderMilitary >= 0, `seed ${seed} week ${world.week}: negative perceived defender military`);
+        invariant(basis.perceivedDefenderReadiness >= 0 && basis.perceivedDefenderReadiness <= 100, `seed ${seed} week ${world.week}: perceived defender readiness out of bounds`);
+        invariant(basis.intelligenceConfidence >= 5 && basis.intelligenceConfidence <= 100, `seed ${seed} week ${world.week}: war intelligence confidence out of bounds`);
+        invariant(basis.intelligenceAgeWeeks >= 0 && basis.intelligenceObservedWeek <= world.week, `seed ${seed} week ${world.week}: invalid war intelligence age`);
+        beliefDrivenWarStarts++;
+        warIntelligenceConfidence.push(basis.intelligenceConfidence);
+        if (warDecisionSamples.length < 8) {
+          const defenderId = war.attacker === war.a ? war.b : war.a;
+          warDecisionSamples.push({
+            seed,
+            week: world.week,
+            attackerId: war.attacker,
+            defenderId,
+            perceivedDefenderMilitary: basis.perceivedDefenderMilitary,
+            perceivedDefenderReadiness: basis.perceivedDefenderReadiness,
+            intelligenceConfidence: basis.intelligenceConfidence,
+            intelligenceAgeWeeks: basis.intelligenceAgeWeeks,
+          });
+        }
+        maxWarIntelligenceAge = Math.max(maxWarIntelligenceAge, basis.intelligenceAgeWeeks);
+
+        const defenderId = war.attacker === war.a ? war.b : war.a;
+        const defender = world.countries.find((country) => country.id === defenderId)!;
+        const perceivedPower = basis.perceivedDefenderMilitary * (0.6 + basis.perceivedDefenderReadiness / 100);
+        const truePower = defender.military * (0.6 + defender.readiness / 100);
+        if (perceivedPower < truePower * 0.95) warsUnderestimatingDefenderPower++;
+        if (perceivedPower > truePower * 1.05) warsOverestimatingDefenderPower++;
+      }
       participants.add(war.a);
       participants.add(war.b);
     }
@@ -268,7 +326,6 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       if (observer.id === subject.id) continue;
       const credibility = getCredibility(world, observer.id, subject.id);
       invariant(Number.isFinite(credibility) && credibility >= 0 && credibility <= 100, `seed ${seed}: credibility out of bounds for ${observer.id}/${subject.id}`);
-      minCredibility = Math.min(minCredibility, credibility);
       maxCredibility = Math.max(maxCredibility, credibility);
     }
   }
@@ -456,6 +513,12 @@ const summary = {
   staleIntelligenceProfiles,
   imperfectMilitaryEstimates,
   avgIntelligenceConfidence: average(intelligenceConfidence),
+  beliefDrivenWarStarts,
+  warsUnderestimatingDefenderPower,
+  warsOverestimatingDefenderPower,
+  maxWarIntelligenceAge,
+  avgWarIntelligenceConfidence: warIntelligenceConfidence.length ? average(warIntelligenceConfidence) : 0,
+  warDecisionSamples,
 };
 
 console.log(JSON.stringify(summary));
@@ -470,9 +533,10 @@ invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNe
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
-// The current deterministic 100-seed corpus produces 7 withdrawals. Keep a
-// lower floor of 5 so CI catches a return to near-unreachability without
-// overfitting the gate to one exact event count.
+invariant(deliberateTreatyViolations < acceptedNegotiations * 0.00025, `${deliberateTreatyViolations} deliberate treaty breaches are too frequent relative to ${acceptedNegotiations} accepted agreements`);
+// Phase 4 calibration established 5 as a robust reachability floor. Keep the
+// floor independent of one exact deterministic event count so later causal
+// phases can change histories without weakening the near-unreachability gate.
 invariant(lawfulWithdrawalMemories >= 5, `only ${lawfulWithdrawalMemories} autonomous lawful treaty withdrawals occurred in the stress worlds`);
 invariant(lawfulWithdrawalMemories < acceptedNegotiations * 0.001, `${lawfulWithdrawalMemories} lawful withdrawals are too frequent relative to ${acceptedNegotiations} accepted agreements`);
 invariant(withdrawalRequests >= withdrawnTreaties, "withdrawn treaty count exceeded withdrawal requests");
@@ -498,3 +562,6 @@ invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
 invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile count ${intelligenceProfiles} did not cover every foreign pair`);
 invariant(staleIntelligenceProfiles > 0, "intelligence never became stale");
 invariant(imperfectMilitaryEstimates > intelligenceProfiles * 0.5, "foreign military intelligence became implausibly omniscient");
+invariant(beliefDrivenWarStarts > 0, "no autonomous war was authorized from subjective intelligence");
+invariant(warsUnderestimatingDefenderPower > 0, "no autonomous war began after underestimating defender power");
+invariant(warsOverestimatingDefenderPower > 0, "no autonomous war began after overestimating defender power");

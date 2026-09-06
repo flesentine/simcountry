@@ -173,6 +173,14 @@ export interface Geography {
   routes: TradeRoute[];
 }
 
+export interface WarDecisionBasis {
+  perceivedDefenderMilitary: number;
+  perceivedDefenderReadiness: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+  intelligenceObservedWeek: number;
+}
+
 export interface War {
   id: string;
   a: string;
@@ -189,6 +197,7 @@ export interface War {
   capturedB: number;
   lastCaptureWeek: number;
   blockadeRouteIds: string[];
+  decisionBasis?: WarDecisionBasis | null;
 }
 
 export interface Truce {

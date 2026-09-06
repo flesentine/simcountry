@@ -65,12 +65,12 @@ describe("Phase 5.0 subjective intelligence", () => {
       .toBeLessThan(staleProfile.estimates.military.confidence);
   });
 
-  test("belief state is informational only and cannot alter authoritative history", () => {
-    const control = createInitialWorld(77);
-    const distorted = createInitialWorld(77);
-    const observer = distorted.countries[0]!;
-    const subject = distorted.countries[1]!;
-    const profile = getCountryIntelligence(distorted, observer.id, subject.id)!;
+  test("belief state cannot directly overwrite authoritative truth", () => {
+    const world = createInitialWorld(77);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const before = truthOnly(world);
 
     for (const estimate of Object.values(profile.estimates)) {
       estimate.value = 999_999;
@@ -80,12 +80,9 @@ describe("Phase 5.0 subjective intelligence", () => {
       estimate.observedWeek = -50_000;
     }
 
-    for (let week = 0; week < 52 * 5; week++) {
-      tickWeek(control);
-      tickWeek(distorted);
-    }
-
-    expect(truthOnly(distorted)).toEqual(truthOnly(control));
+    // Phase 5.1+ deliberately lets belief affect later decisions. The invariant
+    // is narrower: changing belief cannot itself mutate authoritative reality.
+    expect(truthOnly(world)).toEqual(before);
   });
 
   test("read-only intelligence lookup never repairs or mutates missing belief state", () => {

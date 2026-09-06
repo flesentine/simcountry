@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { captureBorderRegion, routeRemainingCapacity } from "./geography";
+import { captureBorderRegion, findFrontCell, hasStrategicAccess, routeRemainingCapacity } from "./geography";
 import { calculateWarSupply, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
 import { createInitialWorld, tickWeek } from "./world";
 
@@ -148,17 +148,20 @@ describe("SimCountry phase 2 strategic geography", () => {
     expect(war!.frontCellId).not.toBeNull();
   });
 
-  test("autonomous war declarations never create an offshore placeholder front", () => {
+  test("every strategic-access pair resolves to a physical war front", () => {
     const world = createInitialWorld(1978);
-    let sawWar = false;
-    for (let week = 0; week < 52 * 60; week++) {
-      tickWeek(world);
-      for (const war of world.wars) {
-        sawWar = true;
-        expect(war.frontCellId).not.toBeNull();
-        expect(world.geography.cells.some((cell) => cell.id === war.frontCellId)).toBe(true);
+    let eligiblePairs = 0;
+
+    for (const attacker of world.countries) {
+      for (const defender of world.countries) {
+        if (attacker.id === defender.id || !hasStrategicAccess(world, attacker.id, defender.id)) continue;
+        eligiblePairs += 1;
+        const front = findFrontCell(world, attacker.id, defender.id);
+        expect(front).not.toBeNull();
+        expect(world.geography.cells.some((cell) => cell.id === front!.id)).toBe(true);
       }
     }
-    expect(sawWar).toBe(true);
-  }, 30_000);
+
+    expect(eligiblePairs).toBeGreaterThan(0);
+  });
 });

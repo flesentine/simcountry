@@ -8,13 +8,15 @@ import type {
   PolicyDomain,
   Proposal,
   ProposalScoreComponent,
+  Resource,
   TreatyClauseDraft,
   TreatyDraft,
   WorldState,
 } from "../model/types";
 import { getCredibility, recordDiplomaticMemory } from "./diplomacy";
-import { registerTreaty } from "./treaties";
-import { validateTreatyDraftInput } from "./treaty-input";
+import { effectiveIntelConfidence, getCountryIntelligence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./intelligence";
+import { registerTreaty, validateTreatyDraft } from "./treaties";
+import { parseTreatyDraftInput } from "./treaty-input";
 
 export type NegotiationRng = { next(): number };
 
@@ -281,27 +283,132 @@ function resourceWeeks(country: Country, resource: (typeof TRADE_RESOURCES)[numb
   return country.resources[resource] / Math.max(0.1, country.needs[resource]);
 }
 
-function bestTradeOpportunity(buyer: Country, seller: Country) {
+function decisionRiskTolerance(country: Country) {
+  return clamp(
+    (country.policy.risk * 0.65 + country.government.leader.traits.riskTolerance * 0.35) / 100,
+    0,
+    1,
+  );
+}
+
+function hedgeTowardLow(value: number, low: number, confidence: number, riskTolerance: number) {
+  const uncertainty = clamp(1 - confidence / 100, 0, 1);
+  const lowerBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+  return Math.max(0, value - Math.max(0, value - low) * lowerBoundShare);
+}
+
+function hedgeTowardHigh(value: number, high: number, confidence: number, riskTolerance: number) {
+  const uncertainty = clamp(1 - confidence / 100, 0, 1);
+  const upperBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+  return Math.max(0, value + Math.max(0, high - value) * upperBoundShare);
+}
+
+export interface PerceivedTradeOpportunity {
+  resource: Resource;
+  buyerWeeks: number;
+  perceivedExportableSurplus: number;
+  perceivedCoverageWeeks: number;
+  advantage: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+}
+
+export function bestTradeOpportunityFromBelief(world: WorldState, buyer: Country, seller: Country): PerceivedTradeOpportunity | null {
+  const profile = getCountryIntelligence(world, buyer.id, seller.id);
+  if (!profile) return null;
+  const riskTolerance = decisionRiskTolerance(buyer);
   const opportunities = TRADE_RESOURCES
     .map((resource) => {
+      const estimate = profile.estimates[RESOURCE_EXPORT_INTELLIGENCE_METRIC[resource]];
+      if (!estimate) return null;
+      const intelligenceConfidence = effectiveIntelConfidence(estimate, world.week);
+      const intelligenceAgeWeeks = Math.max(0, world.week - estimate.observedWeek);
+      const perceivedExportableSurplus = hedgeTowardLow(
+        estimate.value,
+        estimate.low,
+        intelligenceConfidence,
+        riskTolerance,
+      );
       const buyerWeeks = resourceWeeks(buyer, resource);
-      const sellerWeeks = resourceWeeks(seller, resource);
-      return { resource, buyerWeeks, sellerWeeks, advantage: sellerWeeks - buyerWeeks };
+      const perceivedCoverageWeeks = perceivedExportableSurplus / Math.max(0.1, buyer.needs[resource]);
+      const advantage = Math.max(0, 6 - buyerWeeks) + perceivedCoverageWeeks;
+      return {
+        resource,
+        buyerWeeks,
+        perceivedExportableSurplus,
+        perceivedCoverageWeeks,
+        advantage,
+        intelligenceConfidence,
+        intelligenceAgeWeeks,
+      };
     })
-    // Require a real comparative stock advantage so diplomacy does not create
-    // decorative trade preferences that the counterpart cannot meaningfully supply.
-    .filter((entry) => entry.sellerWeeks >= 4 && entry.advantage >= 1.5)
+    .filter((entry): entry is PerceivedTradeOpportunity => entry !== null)
+    .filter((entry) =>
+      entry.buyerWeeks <= 6.5
+      && entry.perceivedExportableSurplus >= Math.max(6, buyer.needs[entry.resource] * 0.75)
+    )
     .sort((a, b) => b.advantage - a.advantage || a.buyerWeeks - b.buyerWeeks);
   return opportunities[0] ?? null;
+}
+
+export interface PotentialCreditorAssessment {
+  perceivedTreasury: number;
+  perceivedPopulation: number;
+  perceivedTreasuryPerCapita: number;
+  perceivedLendableTreasury: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+}
+
+export function assessPotentialCreditorFromBelief(
+  world: WorldState,
+  borrower: Country,
+  creditor: Country,
+): PotentialCreditorAssessment | null {
+  const profile = getCountryIntelligence(world, borrower.id, creditor.id);
+  const treasury = profile?.estimates.treasury;
+  const population = profile?.estimates.population;
+  if (!profile || !treasury || !population) return null;
+
+  const treasuryConfidence = effectiveIntelConfidence(treasury, world.week);
+  const populationConfidence = effectiveIntelConfidence(population, world.week);
+  const intelligenceConfidence = (treasuryConfidence + populationConfidence) / 2;
+  const observedWeek = Math.min(treasury.observedWeek, population.observedWeek);
+  const intelligenceAgeWeeks = Math.max(0, world.week - observedWeek);
+  const riskTolerance = decisionRiskTolerance(borrower);
+  const perceivedTreasury = hedgeTowardLow(
+    treasury.value,
+    treasury.low,
+    intelligenceConfidence,
+    riskTolerance,
+  );
+  const perceivedPopulation = Math.max(
+    1,
+    hedgeTowardHigh(population.value, population.high, intelligenceConfidence, riskTolerance),
+  );
+  const perceivedTreasuryPerCapita = perceivedTreasury / perceivedPopulation;
+  const perceivedLendableTreasury = Math.max(0, perceivedTreasury - perceivedPopulation * 6);
+
+  return {
+    perceivedTreasury,
+    perceivedPopulation,
+    perceivedTreasuryPerCapita,
+    perceivedLendableTreasury,
+    intelligenceConfidence,
+    intelligenceAgeWeeks,
+  };
 }
 
 function draftForMotive(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive): TreatyDraft | null {
   const effectiveWeek = world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS;
   if (motive === "trade_access") {
-    const proposerImport = bestTradeOpportunity(proposer, recipient);
+    const proposerImport = bestTradeOpportunityFromBelief(world, proposer, recipient);
     if (!proposerImport) return null;
-    const recipientImport = bestTradeOpportunity(recipient, proposer);
     const discount = round(clamp(4 + proposer.government.agenda.tradeOpenness / 20, 5, 9));
+    // The proposer may use its own domestic truth and its own foreign belief,
+    // but it may not inspect the recipient's private intelligence picture to
+    // predict what reciprocal concession the recipient would want. A later
+    // counteroffer can express the recipient's own preferences.
     const clauses: TreatyClauseDraft[] = [
       {
         kind: "preferential_trade",
@@ -311,15 +418,6 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
         resource: proposerImport.resource,
       },
     ];
-    if (recipientImport && recipientImport.resource !== proposerImport.resource) {
-      clauses.push({
-        kind: "preferential_trade",
-        grantorId: recipient.id,
-        beneficiaryId: proposer.id,
-        discountPct: discount,
-        resource: recipientImport.resource,
-      });
-    }
     return {
       title: `${proposer.name}–${recipient.name} Trade Compact`,
       parties: [proposer.id, recipient.id],
@@ -342,8 +440,9 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
   }
 
   if (motive === "financing") {
-    const creditorReserve = recipient.population * 6;
-    const available = Math.max(0, recipient.treasury - creditorReserve);
+    const creditorAssessment = assessPotentialCreditorFromBelief(world, proposer, recipient);
+    if (!creditorAssessment) return null;
+    const available = creditorAssessment.perceivedLendableTreasury;
     const principal = round(clamp(available * 0.055, 3, 12), 2);
     if (available < principal || principal < 3) return null;
     return {
@@ -373,7 +472,7 @@ function motiveScores(world: WorldState, proposer: Country, recipient: Country) 
   const route = hasDirectRoute(world, proposer.id, recipient.id);
   const scores: { motive: NegotiationMotive; score: number }[] = [];
 
-  const tradeOpportunity = route ? bestTradeOpportunity(proposer, recipient) : null;
+  const tradeOpportunity = route ? bestTradeOpportunityFromBelief(world, proposer, recipient) : null;
   if (route && tradeOpportunity && !atWar(world, proposer.id, recipient.id)) {
     scores.push({
       motive: "trade_access",
@@ -395,8 +494,15 @@ function motiveScores(world: WorldState, proposer: Country, recipient: Country) 
   }
 
   const fiscalRatio = proposer.treasury / Math.max(1, proposer.population);
-  const creditorRatio = recipient.treasury / Math.max(1, recipient.population);
-  if (!atWar(world, proposer.id, recipient.id) && fiscalRatio < 4.6 && creditorRatio > 7.0 && relation.trust > 35) {
+  const creditorAssessment = assessPotentialCreditorFromBelief(world, proposer, recipient);
+  if (
+    !atWar(world, proposer.id, recipient.id)
+    && fiscalRatio < 4.6
+    && creditorAssessment
+    && creditorAssessment.perceivedTreasuryPerCapita > 7.0
+    && creditorAssessment.perceivedLendableTreasury >= 3
+    && relation.trust > 35
+  ) {
     scores.push({
       motive: "financing",
       score: 48 + (4.6 - fiscalRatio) * 5 + relation.trust * 0.17 + proposer.government.agenda.diplomaticEngagement * 0.08,
@@ -406,9 +512,25 @@ function motiveScores(world: WorldState, proposer: Country, recipient: Country) 
   return scores.sort((a, b) => b.score - a.score);
 }
 
-function defensiveDraft(world: WorldState, draft: TreatyDraft) {
-  const parsed = validateTreatyDraftInput(world, draft);
-  return parsed.ok ? parsed.draft : null;
+function initiationIntelligenceNote(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive) {
+  if (motive === "trade_access") {
+    const opportunity = bestTradeOpportunityFromBelief(world, proposer, recipient);
+    if (!opportunity) return "";
+    return ` Intelligence estimated ~${Math.round(opportunity.perceivedExportableSurplus)} exportable ${opportunity.resource} units at ${Math.round(opportunity.intelligenceConfidence)}% confidence from ${opportunity.intelligenceAgeWeeks}-week-old reporting.`;
+  }
+  if (motive === "financing") {
+    const assessment = assessPotentialCreditorFromBelief(world, proposer, recipient);
+    if (!assessment) return "";
+    return ` Intelligence estimated ${round(assessment.perceivedTreasuryPerCapita, 1)} treasury per capita and ~${Math.round(assessment.perceivedLendableTreasury)} lendable treasury at ${Math.round(assessment.intelligenceConfidence)}% confidence from ${assessment.intelligenceAgeWeeks}-week-old reporting.`;
+  }
+  return "";
+}
+
+function defensiveDraft(world: WorldState, draft: TreatyDraft, proposingCountry: Country) {
+  const parsed = parseTreatyDraftInput(draft);
+  if (!parsed.ok) return null;
+  const errors = validateTreatyDraft(world, parsed.draft, { fundingObserverId: proposingCountry.id });
+  return errors.length ? null : parsed.draft;
 }
 
 function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCountry: Country): TreatyDraft | null {
@@ -437,7 +559,7 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
   if (proposal.motive === "security" && draft.expiryWeek !== null && draft.expiryWeek !== undefined) {
     draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 104);
   }
-  return defensiveDraft(world, draft);
+  return defensiveDraft(world, draft, counteringCountry);
 }
 
 function terminalize(negotiation: Negotiation, status: Negotiation["status"], world: WorldState, reason: string, accepted = false) {
@@ -497,7 +619,7 @@ function createProposal(
 }
 
 function startNegotiation(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive, rawDraft: TreatyDraft) {
-  const draft = defensiveDraft(world, rawDraft);
+  const draft = defensiveDraft(world, rawDraft, proposer);
   if (!draft) return null;
   const id = `negotiation-${world.nextNegotiationId}`;
   const negotiation: Negotiation = {
@@ -624,7 +746,7 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       if (candidate.score < 58) break;
       const draft = draftForMotive(world, proposer, candidate.recipient, candidate.motive);
       if (!draft) continue;
-      const validated = defensiveDraft(world, draft);
+      const validated = defensiveDraft(world, draft, proposer);
       if (!validated) continue;
       const previewEvaluation = evaluateTreatyProposal(world, proposer, validated, "candidate", 1);
       if (previewEvaluation.decision !== "approve" || previewEvaluation.totalScore < previewEvaluation.threshold + 3) continue;
@@ -636,7 +758,8 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       openCounts.set(proposer.id, (openCounts.get(proposer.id) ?? 0) + 1);
       openCounts.set(candidate.recipient.id, (openCounts.get(candidate.recipient.id) ?? 0) + 1);
       startedThisCycle += 1;
-      messages.push(`${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.`);
+      const intelligenceNote = initiationIntelligenceNote(world, proposer, candidate.recipient, candidate.motive);
+      messages.push(`${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.${intelligenceNote}`);
       break;
     }
   }

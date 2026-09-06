@@ -342,7 +342,7 @@ export function assessDebtorRepaymentFromBelief(
   const perceivedTreasury = treasury.value - Math.max(0, treasury.value - treasury.low) * pessimism;
   const perceivedPopulation = Math.max(
     1,
-    hedgeTowardHigh(population.value, population.high, intelligenceConfidence, riskTolerance),
+    population.value - Math.max(0, population.value - population.low) * pessimism,
   );
   const perceivedFiscalStress = clamp(
     -perceivedTreasury / Math.max(1, perceivedPopulation * 5) * 100,

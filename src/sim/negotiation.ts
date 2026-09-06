@@ -404,8 +404,11 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
   if (motive === "trade_access") {
     const proposerImport = bestTradeOpportunityFromBelief(world, proposer, recipient);
     if (!proposerImport) return null;
-    const recipientImport = bestTradeOpportunityFromBelief(world, recipient, proposer);
     const discount = round(clamp(4 + proposer.government.agenda.tradeOpenness / 20, 5, 9));
+    // The proposer may use its own domestic truth and its own foreign belief,
+    // but it may not inspect the recipient's private intelligence picture to
+    // predict what reciprocal concession the recipient would want. A later
+    // counteroffer can express the recipient's own preferences.
     const clauses: TreatyClauseDraft[] = [
       {
         kind: "preferential_trade",
@@ -415,15 +418,6 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
         resource: proposerImport.resource,
       },
     ];
-    if (recipientImport && recipientImport.resource !== proposerImport.resource) {
-      clauses.push({
-        kind: "preferential_trade",
-        grantorId: recipient.id,
-        beneficiaryId: proposer.id,
-        discountPct: discount,
-        resource: recipientImport.resource,
-      });
-    }
     return {
       title: `${proposer.name}–${recipient.name} Trade Compact`,
       parties: [proposer.id, recipient.id],

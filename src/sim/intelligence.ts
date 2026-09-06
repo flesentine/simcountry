@@ -3,9 +3,18 @@ import type {
   CountryIntelligence,
   IntelligenceEstimate,
   IntelligenceMetric,
+  Resource,
   WorldState,
 } from "../model/types";
 import { createRng } from "./rng";
+import { getSellerExportableSurplus } from "./trade";
+
+export const RESOURCE_EXPORT_INTELLIGENCE_METRIC: Readonly<Record<Resource, IntelligenceMetric>> = {
+  food: "foodExportable",
+  energy: "energyExportable",
+  metals: "metalsExportable",
+  goods: "goodsExportable",
+};
 
 export const INTELLIGENCE_METRICS: readonly IntelligenceMetric[] = [
   "population",
@@ -13,6 +22,10 @@ export const INTELLIGENCE_METRICS: readonly IntelligenceMetric[] = [
   "military",
   "readiness",
   "stability",
+  "foodExportable",
+  "energyExportable",
+  "metalsExportable",
+  "goodsExportable",
 ];
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
@@ -46,12 +59,18 @@ function truthFor(subject: Country, metric: IntelligenceMetric) {
   if (metric === "treasury") return subject.treasury;
   if (metric === "military") return subject.military;
   if (metric === "readiness") return subject.readiness;
-  return subject.stability;
+  if (metric === "stability") return subject.stability;
+  if (metric === "foodExportable") return getSellerExportableSurplus(subject, "food");
+  if (metric === "energyExportable") return getSellerExportableSurplus(subject, "energy");
+  if (metric === "metalsExportable") return getSellerExportableSurplus(subject, "metals");
+  return getSellerExportableSurplus(subject, "goods");
 }
 
 function observationConfidence(world: WorldState, observer: Country, subject: Country, metric: IntelligenceMetric) {
   const relation = observer.relations[subject.id];
   const foreignMinistry = observer.government.ministries.foreign;
+  const tradeMinistry = observer.government.ministries.trade;
+  const economicSignal = metric.endsWith("Exportable");
   const directBorder = world.geography.adjacency[observer.id]?.includes(subject.id) ?? false;
   const directRoute = world.geography.routes.some((route) =>
     (route.a === observer.id && route.b === subject.id) || (route.b === observer.id && route.a === subject.id),
@@ -63,12 +82,17 @@ function observationConfidence(world: WorldState, observer: Country, subject: Co
     military: -4,
     readiness: -8,
     stability: 3,
+    foodExportable: 2,
+    energyExportable: 0,
+    metalsExportable: -2,
+    goodsExportable: 1,
   } satisfies Record<IntelligenceMetric, number>)[metric];
 
   return round(clamp(
     24
       + foreignMinistry.competence * 0.28
       + observer.policy.diplomacy * 0.12
+      + (economicSignal ? tradeMinistry.competence * 0.16 + observer.policy.commerce * 0.06 : 0)
       + (directBorder ? 12 : 0)
       + (directRoute ? 7 : 0)
       + tradeSignal
@@ -90,12 +114,13 @@ function estimateMetric(
   const uncertaintyFactor = 1.15 - confidence * 0.0075;
   const rng = observationRng(world, observer.id, subject.id, metric, observedWeek);
 
+  const economicSignal = metric.endsWith("Exportable");
   let radius: number;
   if (metric === "readiness") radius = 20 * uncertaintyFactor;
   else if (metric === "stability") radius = 16 * uncertaintyFactor;
   else {
-    const relative = metric === "population" ? 0.18 : metric === "military" ? 0.24 : 0.36;
-    const floor = metric === "population" ? 1.5 : metric === "military" ? 4 : 20;
+    const relative = metric === "population" ? 0.18 : metric === "military" ? 0.24 : economicSignal ? 0.46 : 0.36;
+    const floor = metric === "population" ? 1.5 : metric === "military" ? 4 : economicSignal ? 6 : 20;
     radius = Math.max(floor, Math.max(Math.abs(truth), floor) * relative * uncertaintyFactor);
   }
 
@@ -103,7 +128,7 @@ function estimateMetric(
   let value = truth + noise;
   let low = value - radius;
   let high = value + radius;
-  if (metric === "population" || metric === "military") {
+  if (metric === "population" || metric === "military" || economicSignal) {
     value = Math.max(0, value);
     low = Math.max(0, low);
   } else if (metric === "readiness" || metric === "stability") {
@@ -152,7 +177,19 @@ export function ensureIntelligence(world: WorldState) {
         delete subjects[subject.id];
         continue;
       }
-      subjects[subject.id] ??= observeCountry(world, observer, subject, world.week);
+      const existing = subjects[subject.id];
+      if (!existing) {
+        subjects[subject.id] = observeCountry(world, observer, subject, world.week);
+        continue;
+      }
+
+      // Serialized Phase 5.0/5.1 worlds do not contain the Phase 5.2 economic
+      // signals. Repair only missing metrics so existing historical beliefs
+      // remain intact instead of being silently re-observed on load.
+      const estimates = existing.estimates as Partial<Record<IntelligenceMetric, IntelligenceEstimate>>;
+      for (const metric of INTELLIGENCE_METRICS) {
+        estimates[metric] ??= estimateMetric(world, observer, subject, metric, world.week);
+      }
     }
   }
   return world.intelligence;

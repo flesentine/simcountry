@@ -309,7 +309,7 @@ Loan principal in an opening proposal is sized from that perceived capacity rath
 
 Belief determines whether talks open and what economic package is proposed.
 
-The treaty system remains authoritative. If the foreign country's real treasury, treaty constraints or other execution conditions cannot support the proposed agreement by signature time, normal validation can reject or constrain the result. Belief never transfers money or goods directly.
+The treaty system remains authoritative. Proposal formation still validates structure, timing, treaty conflicts and any funding obligation that belongs to the proposing government itself, but it does **not** inspect a foreign creditor's hidden treasury. If the foreign country's real treasury or other execution conditions cannot support the proposed agreement by signature time, full registration validation rejects the treaty. Belief never transfers money or goods directly.
 
 ### Decision provenance
 

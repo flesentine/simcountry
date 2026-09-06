@@ -158,6 +158,33 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(bestTradeOpportunityFromBelief(world, buyer, seller)).toEqual(before);
   });
 
+  test("cautious negotiators hedge stale supplier intelligence farther toward the low bound", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const buyer = world.countries.find((country) => country.id === route.a)!;
+    const seller = world.countries.find((country) => country.id === route.b)!;
+    buyer.resources.food = buyer.needs.food;
+    const estimate = getCountryIntelligence(world, buyer.id, seller.id)!.estimates.foodExportable;
+    Object.assign(estimate, {
+      value: 100,
+      low: 20,
+      high: 140,
+      confidence: 30,
+      observedWeek: world.week - 52,
+    });
+
+    buyer.policy.risk = 0;
+    buyer.government.leader.traits.riskTolerance = 0;
+    const cautious = bestTradeOpportunityFromBelief(world, buyer, seller)!;
+
+    buyer.policy.risk = 100;
+    buyer.government.leader.traits.riskTolerance = 100;
+    const riskTolerant = bestTradeOpportunityFromBelief(world, buyer, seller)!;
+
+    expect(cautious.resource).toBe("food");
+    expect(cautious.perceivedExportableSurplus).toBeLessThan(riskTolerant.perceivedExportableSurplus);
+  });
+
   test("financing initiation follows stored fiscal belief rather than hidden creditor treasury", () => {
     const world = createInitialWorld(1978);
     const route = world.geography.routes[0]!;
@@ -175,6 +202,64 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     creditor.population = 1_000;
 
     expect(assessPotentialCreditorFromBelief(world, borrower, creditor)).toEqual(before);
+  });
+
+  test("false-rich creditor belief can open financing talks before truth blocks execution", () => {
+    const world = createInitialWorld(1978);
+    makeDiplomatic(world);
+    world.week = 13;
+
+    // Week 13 begins with country index 1 in the deterministic proposer order.
+    const borrower = world.countries[1]!;
+    const creditor = world.countries[2]!;
+    borrower.treasury = 0;
+    borrower.policy.diplomacy = 0;
+    borrower.policy.expansionism = 100;
+    borrower.government.agenda.diplomaticEngagement = 80;
+    for (const resource of ["food", "energy", "metals", "goods"] as const) {
+      borrower.resources[resource] = borrower.needs[resource] * 20;
+    }
+    for (const relation of Object.values(borrower.relations)) {
+      relation.trust = 80;
+      relation.tension = 0;
+    }
+
+    for (const candidate of world.countries) {
+      if (candidate.id === borrower.id) continue;
+      const profile = getCountryIntelligence(world, borrower.id, candidate.id)!;
+      profile.estimates.treasury = {
+        value: candidate.id === creditor.id ? 900 : 10,
+        low: candidate.id === creditor.id ? 900 : 10,
+        high: candidate.id === creditor.id ? 900 : 10,
+        confidence: 95,
+        observedWeek: world.week,
+      };
+      profile.estimates.population = {
+        value: candidate.id === creditor.id ? 50 : 100,
+        low: candidate.id === creditor.id ? 50 : 100,
+        high: candidate.id === creditor.id ? 50 : 100,
+        confidence: 95,
+        observedWeek: world.week,
+      };
+    }
+
+    // Hidden truth contradicts the borrower's belief.
+    creditor.treasury = 0;
+
+    processNegotiations(world, always(0));
+    const proposal = world.proposals.find(
+      (candidate) => candidate.proposerId === borrower.id
+        && candidate.recipientId === creditor.id
+        && candidate.motive === "financing",
+    );
+    expect(proposal).toBeDefined();
+    expect(validateTreatyDraft(world, proposal!.draft).join(" ")).toMatch(/cannot fund/i);
+
+    world.week = 14;
+    processNegotiations(world, always(1));
+    expect(proposal!.status).toBe("rejected");
+    expect(proposal!.decisionReason).toMatch(/execution validation failed/i);
+    expect(world.treaties).toHaveLength(0);
   });
 
   test("proposal validation defers foreign creditor funding truth until signature", () => {

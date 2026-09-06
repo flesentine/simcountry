@@ -6,6 +6,7 @@ import {
   getCountryIntelligence,
   intelligenceProfileAge,
 } from "./intelligence";
+import { getSellerExportableSurplus } from "./trade";
 import { createInitialWorld, tickWeek } from "./world";
 
 function truthOnly(world: WorldState) {
@@ -26,6 +27,7 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(profiles[observer.id]).toBeUndefined();
 
     let imperfect = 0;
+    let imperfectExportability = 0;
     for (const subject of a.countries.filter((country) => country.id !== observer.id)) {
       const profile = profiles[subject.id]!;
       for (const estimate of Object.values(profile.estimates)) {
@@ -37,8 +39,12 @@ describe("Phase 5.0 subjective intelligence", () => {
         expect(estimate.observedWeek).toBe(0);
       }
       if (Math.abs(profile.estimates.military.value - subject.military) > 0.05) imperfect++;
+      if (Math.abs(profile.estimates.foodExportable.value - getSellerExportableSurplus(subject, "food")) > 0.05) {
+        imperfectExportability++;
+      }
     }
     expect(imperfect).toBeGreaterThan(0);
+    expect(imperfectExportability).toBeGreaterThan(0);
   });
 
   test("quarterly collection refreshes only part of the foreign picture so beliefs can become stale", () => {
@@ -92,6 +98,32 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(getCountryIntelligence(world, observer.id, subject.id)).toBeNull();
     expect(world).toEqual(before);
     expect((world as Partial<WorldState>).intelligence).toBeUndefined();
+  });
+
+  test("Phase 5.1 profiles repair missing economic signals without rewriting earlier beliefs", () => {
+    const world = createInitialWorld(1978);
+    for (let week = 0; week < 21; week++) tickWeek(world);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+    const militaryBefore = structuredClone(profile.estimates.military);
+    const truthBefore = truthOnly(world);
+    const legacyEstimates = profile.estimates as Partial<typeof profile.estimates>;
+
+    delete legacyEstimates.foodExportable;
+    delete legacyEstimates.energyExportable;
+    delete legacyEstimates.metalsExportable;
+    delete legacyEstimates.goodsExportable;
+
+    ensureIntelligence(world);
+    const repaired = getCountryIntelligence(world, observer.id, subject.id)!;
+
+    expect(repaired.estimates.foodExportable).toBeDefined();
+    expect(repaired.estimates.energyExportable).toBeDefined();
+    expect(repaired.estimates.metalsExportable).toBeDefined();
+    expect(repaired.estimates.goodsExportable).toBeDefined();
+    expect(repaired.estimates.military).toEqual(militaryBefore);
+    expect(truthOnly(world)).toEqual(truthBefore);
   });
 
   test("older serialized worlds rebuild missing intelligence without rewriting truth", () => {

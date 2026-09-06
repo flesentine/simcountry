@@ -3,6 +3,7 @@ import type { Negotiation, Proposal, TreatyDraft } from "../model/types";
 import { assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
 import { getCountryIntelligence } from "./intelligence";
 import { parseTreatyDraftInput, validateTreatyDraftInput } from "./treaty-input";
+import { validateTreatyDraft } from "./treaties";
 import { createInitialWorld } from "./world";
 
 const always = (value: number) => ({ next: () => value });
@@ -174,6 +175,40 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     creditor.population = 1_000;
 
     expect(assessPotentialCreditorFromBelief(world, borrower, creditor)).toEqual(before);
+  });
+
+  test("proposal validation defers foreign creditor funding truth until signature", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const borrower = world.countries.find((country) => country.id === route.a)!;
+    const creditor = world.countries.find((country) => country.id === route.b)!;
+    creditor.treasury = 0;
+
+    const draft: TreatyDraft = {
+      title: "Belief-driven credit proposal",
+      parties: [borrower.id, creditor.id],
+      effectiveWeek: 8,
+      expiryWeek: 140,
+      withdrawalNoticeWeeks: 13,
+      clauses: [{
+        kind: "loan",
+        creditorId: creditor.id,
+        debtorId: borrower.id,
+        principal: 5,
+        installment: 1,
+        intervalWeeks: 13,
+        firstPaymentDelayWeeks: 13,
+      }],
+    };
+
+    const borrowerProposalErrors = validateTreatyDraft(world, draft, { fundingObserverId: borrower.id });
+    expect(borrowerProposalErrors.join(" ")).not.toMatch(/cannot fund/i);
+
+    const creditorSelfCheckErrors = validateTreatyDraft(world, draft, { fundingObserverId: creditor.id });
+    expect(creditorSelfCheckErrors.join(" ")).toMatch(/cannot fund/i);
+
+    const signatureErrors = validateTreatyDraft(world, draft);
+    expect(signatureErrors.join(" ")).toMatch(/cannot fund/i);
   });
 
   test("missing foreign intelligence blocks economic negotiation opportunity", () => {

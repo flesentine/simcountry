@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { chooseTradePartner } from "../ai/policy";
+import { getCountryIntelligence } from "./intelligence";
 import { createInitialWorld } from "./world";
 import { registerTreaty } from "./treaties";
 
@@ -10,9 +11,26 @@ describe("Phase 4.0 treaty trade enforcement", () => {
     const seller = world.countries.find((country) => country.id === route.a)!;
     const buyer = world.countries.find((country) => country.id === route.b)!;
 
-    for (const country of world.countries) country.resources.goods = 0;
+    for (const country of world.countries) {
+      country.resources.goods = 0;
+      if (country.id === buyer.id) continue;
+      getCountryIntelligence(world, buyer.id, country.id)!.estimates.goodsExportable = {
+        value: 0,
+        low: 0,
+        high: 0,
+        confidence: 92,
+        observedWeek: world.week,
+      };
+    }
     buyer.resources.goods = 0;
     seller.resources.goods = seller.needs.goods * 40;
+    getCountryIntelligence(world, buyer.id, seller.id)!.estimates.goodsExportable = {
+      value: 500,
+      low: 480,
+      high: 520,
+      confidence: 92,
+      observedWeek: world.week,
+    };
 
     const before = chooseTradePartner(world, buyer, "goods");
     expect(before?.seller.id).toBe(seller.id);

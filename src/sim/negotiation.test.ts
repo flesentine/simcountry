@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Negotiation, Proposal, TreatyDraft } from "../model/types";
-import { diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
+import { assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
+import { getCountryIntelligence } from "./intelligence";
 import { parseTreatyDraftInput, validateTreatyDraftInput } from "./treaty-input";
 import { createInitialWorld } from "./world";
 
@@ -80,23 +81,41 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     expect(unsafeInteger.ok).toBe(false);
   });
 
-  test("autonomous trade talks require real resource complementarity", () => {
+  test("autonomous trade talks require perceived resource complementarity", () => {
     const world = createInitialWorld(1978);
     makeDiplomatic(world);
     const resources = ["food", "energy", "metals", "goods"] as const;
-    for (const [index, country] of world.countries.entries()) {
+    for (const country of world.countries) {
       country.policy.commerce = 100;
       country.policy.diplomacy = 10;
       country.government.agenda.tradeOpenness = 100;
       country.government.agenda.diplomaticEngagement = 80;
+      country.resources.food = country.needs.food * 1.5;
+      for (const resource of resources.filter((resource) => resource !== "food")) {
+        country.resources[resource] = country.needs[resource] * 10;
+      }
       for (const relation of Object.values(country.relations)) {
         relation.trust = 70;
         relation.tension = 5;
       }
-      for (const [resourceIndex, resource] of resources.entries()) {
-        country.resources[resource] = country.needs[resource] * (resourceIndex === index % resources.length ? 30 : 2);
+    }
+    for (const observer of world.countries) {
+      for (const subject of world.countries) {
+        if (observer.id === subject.id) continue;
+        const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+        for (const resource of resources) {
+          const metric = `${resource}Exportable` as const;
+          profile.estimates[metric] = {
+            value: resource === "food" ? 120 : 0,
+            low: resource === "food" ? 100 : 0,
+            high: resource === "food" ? 140 : 4,
+            confidence: 90,
+            observedWeek: world.week,
+          };
+        }
       }
     }
+
     world.week = 13;
     processNegotiations(world, always(0));
 
@@ -107,16 +126,65 @@ describe("Phase 4.1 negotiation and government authorization", () => {
     for (const clause of preferenceClauses) {
       if (clause.kind !== "preferential_trade" || !clause.resource) continue;
       const buyer = world.countries.find((country) => country.id === clause.grantorId)!;
-      const seller = world.countries.find((country) => country.id === clause.beneficiaryId)!;
-      const buyerWeeks = buyer.resources[clause.resource] / Math.max(0.1, buyer.needs[clause.resource]);
-      const sellerWeeks = seller.resources[clause.resource] / Math.max(0.1, seller.needs[clause.resource]);
-      expect(sellerWeeks - buyerWeeks).toBeGreaterThanOrEqual(1.5);
-      expect(sellerWeeks).toBeGreaterThanOrEqual(4);
+      const profile = getCountryIntelligence(world, buyer.id, clause.beneficiaryId)!;
+      const metric = `${clause.resource}Exportable` as const;
+      expect(clause.resource).toBe("food");
+      expect(profile.estimates[metric].value).toBeGreaterThan(0);
+      expect(buyer.resources[clause.resource] / Math.max(0.1, buyer.needs[clause.resource])).toBeLessThanOrEqual(6.5);
     }
-    if (preferenceClauses.length > 1) {
-      const resourceSet = new Set(preferenceClauses.map((clause) => clause.kind === "preferential_trade" ? clause.resource : null));
-      expect(resourceSet.size).toBe(preferenceClauses.length);
-    }
+  });
+
+  test("trade negotiation opportunity follows stored supplier belief rather than hidden stock", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const buyer = world.countries.find((country) => country.id === route.a)!;
+    const seller = world.countries.find((country) => country.id === route.b)!;
+    buyer.resources.food = buyer.needs.food;
+    const profile = getCountryIntelligence(world, buyer.id, seller.id)!;
+    profile.estimates.foodExportable = { value: 150, low: 120, high: 180, confidence: 90, observedWeek: world.week };
+    profile.estimates.energyExportable = { value: 0, low: 0, high: 5, confidence: 90, observedWeek: world.week };
+    profile.estimates.metalsExportable = { value: 0, low: 0, high: 5, confidence: 90, observedWeek: world.week };
+    profile.estimates.goodsExportable = { value: 0, low: 0, high: 5, confidence: 90, observedWeek: world.week };
+
+    const before = bestTradeOpportunityFromBelief(world, buyer, seller);
+    expect(before?.resource).toBe("food");
+
+    seller.resources.food = 0;
+    seller.needs.food = 1_000;
+    seller.resources.energy = 100_000;
+    seller.needs.energy = 0.1;
+
+    expect(bestTradeOpportunityFromBelief(world, buyer, seller)).toEqual(before);
+  });
+
+  test("financing initiation follows stored fiscal belief rather than hidden creditor treasury", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const borrower = world.countries.find((country) => country.id === route.a)!;
+    const creditor = world.countries.find((country) => country.id === route.b)!;
+    const profile = getCountryIntelligence(world, borrower.id, creditor.id)!;
+    profile.estimates.treasury = { value: 900, low: 800, high: 1_000, confidence: 88, observedWeek: world.week };
+    profile.estimates.population = { value: 50, low: 45, high: 55, confidence: 90, observedWeek: world.week };
+
+    const before = assessPotentialCreditorFromBelief(world, borrower, creditor);
+    expect(before?.perceivedTreasuryPerCapita).toBeGreaterThan(7);
+    expect(before?.perceivedLendableTreasury).toBeGreaterThan(3);
+
+    creditor.treasury = -10_000;
+    creditor.population = 1_000;
+
+    expect(assessPotentialCreditorFromBelief(world, borrower, creditor)).toEqual(before);
+  });
+
+  test("missing foreign intelligence blocks economic negotiation opportunity", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const observer = world.countries.find((country) => country.id === route.a)!;
+    const subject = world.countries.find((country) => country.id === route.b)!;
+    delete world.intelligence.byObserver[observer.id]![subject.id];
+
+    expect(bestTradeOpportunityFromBelief(world, observer, subject)).toBeNull();
+    expect(assessPotentialCreditorFromBelief(world, observer, subject)).toBeNull();
   });
 
   test("cabinet evaluation exposes leader and every ministry utility", () => {

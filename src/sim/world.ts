@@ -1,4 +1,4 @@
-import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getSellerReserveWeeks, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
+import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -9,6 +9,7 @@ import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
 import { breachNonAggressionForWar, getActiveTreaties, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, requestTreatyWithdrawal, resetTreatyWeeklyUsage } from "./treaties";
+import { getSellerExportableSurplus } from "./trade";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
 const COLORS = ["#72a7ff", "#f17b72", "#68c59f", "#d8b35d", "#ad8cff", "#e18dca", "#5dc1cf", "#d0d36c"] as const;
@@ -190,9 +191,7 @@ function runTrade(world: WorldState) {
     if (treatyPolicy.blocked) continue;
     const desiredWeeks = 1.5 + buyer.policy.commerce / 25;
     const desired = Math.max(4, buyer.needs[intent.resource] * desiredWeeks);
-    const sellerReserveWeeks = getSellerReserveWeeks(seller);
-    const sellerReserve = seller.needs[intent.resource] * sellerReserveWeeks;
-    const available = Math.max(0, seller.resources[intent.resource] - sellerReserve);
+    const available = getSellerExportableSurplus(seller, intent.resource);
     const routeCapacity = routeRemainingCapacity(route);
     const amount = Math.min(desired, available, routeCapacity, treatyPolicy.quotaRemaining);
     const infrastructureEfficiency = 0.72 + route.level * 0.11 + route.condition / 500;

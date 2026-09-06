@@ -15,8 +15,8 @@ import type {
 } from "../model/types";
 import { getCredibility, recordDiplomaticMemory } from "./diplomacy";
 import { effectiveIntelConfidence, getCountryIntelligence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./intelligence";
-import { registerTreaty } from "./treaties";
-import { validateTreatyDraftInput } from "./treaty-input";
+import { registerTreaty, validateTreatyDraft } from "./treaties";
+import { parseTreatyDraftInput } from "./treaty-input";
 
 export type NegotiationRng = { next(): number };
 
@@ -526,9 +526,11 @@ function initiationIntelligenceNote(world: WorldState, proposer: Country, recipi
   return "";
 }
 
-function defensiveDraft(world: WorldState, draft: TreatyDraft) {
-  const parsed = validateTreatyDraftInput(world, draft);
-  return parsed.ok ? parsed.draft : null;
+function defensiveDraft(world: WorldState, draft: TreatyDraft, proposingCountry: Country) {
+  const parsed = parseTreatyDraftInput(draft);
+  if (!parsed.ok) return null;
+  const errors = validateTreatyDraft(world, parsed.draft, { fundingObserverId: proposingCountry.id });
+  return errors.length ? null : parsed.draft;
 }
 
 function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCountry: Country): TreatyDraft | null {
@@ -557,7 +559,7 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
   if (proposal.motive === "security" && draft.expiryWeek !== null && draft.expiryWeek !== undefined) {
     draft.expiryWeek = Math.min(draft.expiryWeek, world.week + 104);
   }
-  return defensiveDraft(world, draft);
+  return defensiveDraft(world, draft, counteringCountry);
 }
 
 function terminalize(negotiation: Negotiation, status: Negotiation["status"], world: WorldState, reason: string, accepted = false) {
@@ -617,7 +619,7 @@ function createProposal(
 }
 
 function startNegotiation(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive, rawDraft: TreatyDraft) {
-  const draft = defensiveDraft(world, rawDraft);
+  const draft = defensiveDraft(world, rawDraft, proposer);
   if (!draft) return null;
   const id = `negotiation-${world.nextNegotiationId}`;
   const negotiation: Negotiation = {
@@ -744,7 +746,7 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       if (candidate.score < 58) break;
       const draft = draftForMotive(world, proposer, candidate.recipient, candidate.motive);
       if (!draft) continue;
-      const validated = defensiveDraft(world, draft);
+      const validated = defensiveDraft(world, draft, proposer);
       if (!validated) continue;
       const previewEvaluation = evaluateTreatyProposal(world, proposer, validated, "candidate", 1);
       if (previewEvaluation.decision !== "approve" || previewEvaluation.totalScore < previewEvaluation.threshold + 3) continue;

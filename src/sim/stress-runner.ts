@@ -48,6 +48,7 @@ let acceptedNegotiations = 0;
 let rejectedNegotiations = 0;
 let counterProposals = 0;
 let beliefDrivenEconomicNegotiations = 0;
+let beliefDrivenEconomicNegotiationEvents = 0;
 let worldsWithNegotiations = 0;
 let worldsWithAcceptedNegotiations = 0;
 let maxNegotiationsPerWorld = 0;
@@ -344,6 +345,11 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   beliefDrivenEconomicNegotiations += world.proposals.filter(
     (proposal) => proposal.round === 1 && (proposal.motive === "trade_access" || proposal.motive === "financing"),
   ).length;
+  beliefDrivenEconomicNegotiationEvents += world.events.filter(
+    (event) => event.kind === "diplomacy"
+      && event.text.includes("Intelligence estimated")
+      && (event.text.includes("opens trade-access talks") || event.text.includes("opens financing talks")),
+  ).length;
   if (world.negotiations.length > 0) worldsWithNegotiations++;
   if (world.negotiations.some((negotiation) => negotiation.status === "accepted")) worldsWithAcceptedNegotiations++;
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);
@@ -514,6 +520,7 @@ const summary = {
   rejectedNegotiations,
   counterProposals,
   beliefDrivenEconomicNegotiations,
+  beliefDrivenEconomicNegotiationEvents,
   worldsWithNegotiations,
   worldsWithAcceptedNegotiations,
   maxNegotiationsPerWorld,
@@ -555,6 +562,7 @@ invariant(acceptedNegotiations > SEEDS.length, `only ${acceptedNegotiations} aut
 invariant(rejectedNegotiations >= negotiationsStarted * 0.01, `only ${rejectedNegotiations}/${negotiationsStarted} autonomous negotiations were rejected; cabinet bargaining is too agreeable`);
 invariant(counterProposals > 0, "no autonomous counterproposal occurred in the stress worlds");
 invariant(beliefDrivenEconomicNegotiations > SEEDS.length, "belief-driven economic negotiation initiation stopped occurring");
+invariant(beliefDrivenEconomicNegotiationEvents > SEEDS.length, "belief-driven economic negotiation history lost its intelligence provenance");
 invariant(diplomaticMemories > 0, "no diplomatic memories were retained");
 invariant(deliberateTreatyViolations > 0, "no deliberate treaty breach occurred in autonomous stress worlds");
 invariant(deliberateTreatyViolations < acceptedNegotiations * 0.00025, `${deliberateTreatyViolations} deliberate treaty breaches are too frequent relative to ${acceptedNegotiations} accepted agreements`);

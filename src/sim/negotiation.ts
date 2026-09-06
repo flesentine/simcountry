@@ -153,11 +153,11 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         add("stability", 7 + fiscalNeed * 0.06);
         add("diplomacy", 4);
       } else if (clause.creditorId === country.id) {
-        const debtor = countryById(world, clause.debtorId);
         const debtorRelation = country.relations[clause.debtorId];
         const reserve = Math.max(1, country.population * 6);
         const liquidityCost = clause.principal / reserve * 100;
-        const debtorStress = debtor ? clamp(-debtor.treasury / Math.max(1, debtor.population * 5) * 100) : 100;
+        const repaymentAssessment = assessDebtorRepaymentFromBelief(world, country, clause.debtorId);
+        const debtorStress = repaymentAssessment.perceivedFiscalStress;
         const trustValue = debtorRelation?.trust ?? 25;
         const debtorCredibility = getCredibility(world, country.id, clause.debtorId);
         const creditRisk = (100 - debtorCredibility) * 0.16 + debtorStress * 0.18 + liquidityCost * 0.30;
@@ -301,6 +301,61 @@ function hedgeTowardHigh(value: number, high: number, confidence: number, riskTo
   const uncertainty = clamp(1 - confidence / 100, 0, 1);
   const upperBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
   return Math.max(0, value + Math.max(0, high - value) * upperBoundShare);
+}
+
+export interface DebtorRepaymentAssessment {
+  available: boolean;
+  perceivedTreasury: number;
+  perceivedPopulation: number;
+  perceivedFiscalStress: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+}
+
+export function assessDebtorRepaymentFromBelief(
+  world: WorldState,
+  creditor: Country,
+  debtorId: string,
+): DebtorRepaymentAssessment {
+  const profile = getCountryIntelligence(world, creditor.id, debtorId);
+  const treasury = profile?.estimates.treasury;
+  const population = profile?.estimates.population;
+  if (!profile || !treasury || !population) {
+    return {
+      available: false,
+      perceivedTreasury: 0,
+      perceivedPopulation: 1,
+      perceivedFiscalStress: 100,
+      intelligenceConfidence: 0,
+      intelligenceAgeWeeks: 0,
+    };
+  }
+
+  const treasuryConfidence = effectiveIntelConfidence(treasury, world.week);
+  const populationConfidence = effectiveIntelConfidence(population, world.week);
+  const intelligenceConfidence = (treasuryConfidence + populationConfidence) / 2;
+  const observedWeek = Math.min(treasury.observedWeek, population.observedWeek);
+  const intelligenceAgeWeeks = Math.max(0, world.week - observedWeek);
+  const riskTolerance = decisionRiskTolerance(creditor);
+  const uncertainty = clamp(1 - intelligenceConfidence / 100, 0, 1);
+  const pessimism = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+  const perceivedTreasury = treasury.value - Math.max(0, treasury.value - treasury.low) * pessimism;
+  const perceivedPopulation = Math.max(
+    1,
+    hedgeTowardHigh(population.value, population.high, intelligenceConfidence, riskTolerance),
+  );
+  const perceivedFiscalStress = clamp(
+    -perceivedTreasury / Math.max(1, perceivedPopulation * 5) * 100,
+  );
+
+  return {
+    available: true,
+    perceivedTreasury,
+    perceivedPopulation,
+    perceivedFiscalStress,
+    intelligenceConfidence,
+    intelligenceAgeWeeks,
+  };
 }
 
 export interface PerceivedTradeOpportunity {

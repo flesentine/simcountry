@@ -451,6 +451,8 @@ Profiles also retain whether their latest collection was baseline, routine or re
 
 Quarterly world history records the active retasking map so browser runs can verify that autonomous reconnaissance is actually occurring.
 
+In Intelligence Mode, the selected government's foreign-intelligence inspector identifies its current recon target, the belief-derived priority score, the assignment week and whether each profile's latest collection was baseline, routine or reconnaissance.
+
 Older serialized worlds without reconnaissance metadata repair the missing collection state without rewriting existing beliefs or authoritative world truth.
 
 ### Phase 5.5 verification contract

@@ -159,7 +159,7 @@ function parseClause(value: unknown, index: number, errors: string[]): TreatyCla
 export function parseTreatyDraftInput(input: unknown): TreatyDraftInputResult {
   const errors: string[] = [];
   if (!isRecord(input)) return { ok: false, errors: ["treaty proposal must be an object"] };
-  if (!hasOnlyKeys(input, ["title", "parties", "effectiveWeek", "expiryWeek", "withdrawalNoticeWeeks", "clauses"])) errors.push("treaty proposal contains unsupported fields");
+  if (!hasOnlyKeys(input, ["title", "parties", "visibility", "effectiveWeek", "expiryWeek", "withdrawalNoticeWeeks", "clauses"])) errors.push("treaty proposal contains unsupported fields");
 
   const title = typeof input.title === "string" ? input.title.trim() : "";
   if (!title || title.length > 120) errors.push("treaty title must contain 1 to 120 characters");
@@ -169,6 +169,7 @@ export function parseTreatyDraftInput(input: unknown): TreatyDraftInputResult {
     errors.push("treaty parties must be exactly two non-empty country ids");
   }
 
+  if (input.visibility !== undefined && input.visibility !== "public" && input.visibility !== "secret") errors.push("visibility must be public or secret");
   if (input.effectiveWeek !== undefined && !integer(input.effectiveWeek)) errors.push("effectiveWeek must be an integer");
   if (input.expiryWeek !== undefined && input.expiryWeek !== null && !integer(input.expiryWeek)) errors.push("expiryWeek must be an integer or null");
   if (input.withdrawalNoticeWeeks !== undefined && !integer(input.withdrawalNoticeWeeks)) errors.push("withdrawalNoticeWeeks must be an integer");
@@ -192,6 +193,7 @@ export function parseTreatyDraftInput(input: unknown): TreatyDraftInputResult {
     title,
     parties: [String(parties[0]), String(parties[1])],
     clauses,
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility as "public" | "secret" }),
     ...(input.effectiveWeek === undefined ? {} : { effectiveWeek: input.effectiveWeek as number }),
     ...(input.expiryWeek === undefined ? {} : { expiryWeek: input.expiryWeek as number | null }),
     ...(input.withdrawalNoticeWeeks === undefined ? {} : { withdrawalNoticeWeeks: input.withdrawalNoticeWeeks as number }),

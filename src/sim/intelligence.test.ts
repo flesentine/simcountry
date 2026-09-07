@@ -186,6 +186,10 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(exaggerated.estimates.military.value).toBeGreaterThan(baseline.estimates.military.value);
     expect(concealed.estimates.readiness.value).toBeLessThan(baseline.estimates.readiness.value);
     expect(exaggerated.estimates.readiness.value).toBeGreaterThan(baseline.estimates.readiness.value);
+    expect(concealed.estimates.military.confidence).toBe(baseline.estimates.military.confidence);
+    expect(exaggerated.estimates.military.confidence).toBe(baseline.estimates.military.confidence);
+    expect(concealed.estimates.readiness.confidence).toBe(baseline.estimates.readiness.confidence);
+    expect(exaggerated.estimates.readiness.confidence).toBe(baseline.estimates.readiness.confidence);
 
     for (const metric of ["population", "treasury", "stability", "foodExportable", "energyExportable", "metalsExportable", "goodsExportable"] as const) {
       expect(concealed.estimates[metric]).toEqual(baseline.estimates[metric]);

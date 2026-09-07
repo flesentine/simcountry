@@ -365,6 +365,7 @@ function addViolation(world: WorldState, treaty: Treaty, violation: Omit<TreatyV
     sourceType: "treaty",
     sourceId: recorded.id,
     description: `${countryById(world, violation.violatorId)?.name ?? violation.violatorId} ${violation.deliberate ? "deliberately " : ""}breached ${treaty.title} (${violation.reason}).`,
+    observerIds: secretTreatyObservers(treaty),
   });
 }
 
@@ -634,6 +635,7 @@ function recordTreatyHonored(world: WorldState, treaty: Treaty) {
       sourceType: "treaty",
       sourceId: treaty.id,
       description: `${countryById(world, subjectId)?.name ?? subjectId} completed its commitments under ${treaty.title}.`,
+      observerIds: secretTreatyObservers(treaty),
     });
   }
 }
@@ -656,6 +658,7 @@ function terminateTreaty(world: WorldState, treaty: Treaty, status: "expired" | 
       sourceType: "treaty",
       sourceId: treaty.id,
       description: `${countryById(world, treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} lawfully withdrew from ${treaty.title}.`,
+      observerIds: secretTreatyObservers(treaty),
     });
   } else if (status === "expired" && !treaty.obligations.some((obligation) => obligation.status === "active" || obligation.status === "defaulted")) {
     recordTreatyHonored(world, treaty);

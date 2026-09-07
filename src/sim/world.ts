@@ -9,7 +9,7 @@ import { processNegotiations } from "./negotiation";
 import { applyGeographicProduction } from "./production";
 import { createRng } from "./rng";
 import { clearWarBlockades, runAnnualDemography, runInfrastructure, updateWarLogistics } from "./strategy";
-import { breachNonAggressionForWar, getActiveTreaties, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, requestTreatyWithdrawal, resetTreatyWeeklyUsage } from "./treaties";
+import { breachNonAggressionForWar, getActiveTreaties, getTreatyTradePolicy, isNonAggressionActive, processTreaties, recordTreatyTrade, requestTreatyWithdrawal, resetTreatyWeeklyUsage, treatyEventNarrative } from "./treaties";
 import { getSellerExportableSurplus } from "./trade";
 
 const NAMES = ["Aurelia", "Belvar", "Corvin", "Demeria", "Iona", "Karsia", "Tassar", "Veyra"] as const;
@@ -286,7 +286,7 @@ function enforceStateBounds(world: WorldState) {
 }
 
 function considerTreatyWithdrawals(world: WorldState, rng: ReturnType<typeof createRng>) {
-  const messages: string[] = [];
+  const messages: EventMessage[] = [];
   if (world.week % 13 !== 0) return messages;
 
   for (const country of world.countries) {
@@ -305,7 +305,7 @@ function considerTreatyWithdrawals(world: WorldState, rng: ReturnType<typeof cre
 
       const result = requestTreatyWithdrawal(world, treaty.id, country.id);
       if (result.ok) {
-        messages.push(`${country.name} gives lawful withdrawal notice from ${treaty.title} after confidence in ${counterpart.name}'s reliability falls to ${Math.round(decision.credibility)}.`);
+        messages.push(treatyEventNarrative(treaty, `${country.name} gives lawful withdrawal notice from ${treaty.title} after confidence in ${counterpart.name}'s reliability falls to ${Math.round(decision.credibility)}.`));
         break;
       }
     }

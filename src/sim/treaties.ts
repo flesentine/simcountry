@@ -1,6 +1,7 @@
 import { obligationRefusalPressure, recordDiplomaticMemory } from "./diplomacy";
 import type {
   Country,
+  EventMessage,
   LoanClause,
   NonAggressionClause,
   ObligationFailureReason,
@@ -34,6 +35,20 @@ export interface TreatyTradePolicy {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 const TERMINAL_STATUSES = new Set<Treaty["status"]>(["fulfilled", "violated", "expired", "withdrawn"]);
+
+function secretTreatyObservers(treaty: Treaty) {
+  return treaty.visibility === "secret" ? [...treaty.parties] : undefined;
+}
+
+function treatyNarrative(treaty: Treaty, text: string): EventMessage {
+  return treaty.visibility === "secret"
+    ? { text, audienceCountryIds: [...treaty.parties], publicText: null }
+    : text;
+}
+
+export function treatyVisibleToObserver(treaty: Treaty, observerId: string) {
+  return treaty.visibility !== "secret" || treaty.parties.includes(observerId);
+}
 
 type TreatyOperationalCache = {
   observedLength: number;
@@ -243,6 +258,9 @@ export function validateTreatyDraft(
   if (!countryById(world, a) || !countryById(world, b)) errors.push("all treaty parties must exist in the world");
   if (!draft.title.trim()) errors.push("treaty title is required");
   if (!draft.clauses.length) errors.push("treaty must contain at least one clause");
+  if (draft.visibility === "secret" && draft.clauses.some((clause) => clause.kind !== "non_aggression")) {
+    errors.push("secret treaties in Phase 5.8 may contain only non-aggression clauses");
+  }
   if (!Number.isInteger(effectiveWeek) || effectiveWeek < world.week) errors.push("effective week cannot be before the current week");
   if (expiryWeek !== null && (!Number.isInteger(expiryWeek) || expiryWeek <= effectiveWeek)) errors.push("expiry week must be after the effective week");
   if (!Number.isInteger(withdrawalNoticeWeeks) || withdrawalNoticeWeeks < 0 || withdrawalNoticeWeeks > 260) errors.push("withdrawal notice must be between 0 and 260 weeks");
@@ -420,6 +438,7 @@ export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyReg
     id,
     title: draft.title.trim(),
     parties: draft.parties,
+    visibility: draft.visibility ?? "public",
     signedWeek: world.week,
     effectiveWeek,
     expiryWeek: draft.expiryWeek ?? null,
@@ -453,6 +472,7 @@ export function registerTreaty(world: WorldState, draft: TreatyDraft): TreatyReg
       sourceType: "treaty",
       sourceId: treaty.id,
       description: `${countryById(world, subjectId)?.name ?? subjectId} signs ${treaty.title} with ${countryById(world, counterpartId)?.name ?? counterpartId}.`,
+      observerIds: secretTreatyObservers(treaty),
     });
   }
   syncTreatyCache(world, treaty);
@@ -480,7 +500,7 @@ export function isNonAggressionActive(world: WorldState, a: string, b: string) {
   return false;
 }
 export function breachNonAggressionForWar(world: WorldState, attackerId: string, defenderId: string) {
-  const messages: string[] = [];
+  const messages: EventMessage[] = [];
   for (const treaty of [...treatyCache(world).active]) {
     if (pairKey(treaty.parties[0], treaty.parties[1]) !== pairKey(attackerId, defenderId)) continue;
     const clause = treaty.clauses.find((candidate) => candidate.kind === "non_aggression" && candidate.status === "active");
@@ -500,7 +520,7 @@ export function breachNonAggressionForWar(world: WorldState, attackerId: string,
       deliberate: true,
     });
     syncTreatyCache(world, treaty);
-    messages.push(`${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`);
+    messages.push(treatyNarrative(treaty, `${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`));
   }
   return messages;
 }
@@ -656,23 +676,23 @@ export function requestTreatyWithdrawal(world: WorldState, treatyId: string, cou
 }
 
 export function processTreaties(world: WorldState) {
-  const messages: string[] = [];
+  const messages: EventMessage[] = [];
   const cache = treatyCache(world);
   for (const treaty of [...cache.operational]) {
     if (treaty.status === "pending" && world.week >= treaty.effectiveWeek) {
       const activationFailure = activateTreaty(world, treaty);
-      if (activationFailure) messages.push(activationFailure);
-      else if (treaty.activatedWeek === world.week) messages.push(`${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`);
+      if (activationFailure) messages.push(treatyNarrative(treaty, activationFailure));
+      else if (treaty.activatedWeek === world.week) messages.push(treatyNarrative(treaty, `${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`));
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.withdrawalEffectiveWeek !== null && world.week >= treaty.withdrawalEffectiveWeek) {
       terminateTreaty(world, treaty, "withdrawn");
-      messages.push(`${treaty.title} ends after its lawful withdrawal notice period.`);
+      messages.push(treatyNarrative(treaty, `${treaty.title} ends after its lawful withdrawal notice period.`));
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.expiryWeek !== null && world.week >= treaty.expiryWeek) {
       terminateTreaty(world, treaty, "expired");
-      messages.push(`${treaty.title} expires at the end of its agreed term.`);
+      messages.push(treatyNarrative(treaty, `${treaty.title} expires at the end of its agreed term.`));
     }
 
     if (treaty.activatedWeek !== null) {
@@ -687,7 +707,7 @@ export function processTreaties(world: WorldState) {
       treaty.status = "fulfilled";
       treaty.terminalReason = "term_completed";
       recordTreatyHonored(world, treaty);
-      messages.push(`${treaty.title} is fulfilled after all obligations are completed.`);
+      messages.push(treatyNarrative(treaty, `${treaty.title} is fulfilled after all obligations are completed.`));
     }
     syncTreatyCache(world, treaty);
   }

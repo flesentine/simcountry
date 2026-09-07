@@ -250,9 +250,12 @@ export type TreatyClauseDraft =
   | { kind: "loan"; creditorId: string; debtorId: string; principal: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number }
   | { kind: "reparations"; payerId: string; payeeId: string; totalAmount: number; installment: number; intervalWeeks: number; firstPaymentDelayWeeks?: number };
 
+export type TreatyVisibility = "public" | "secret";
+
 export interface TreatyDraft {
   title: string;
   parties: [string, string];
+  visibility?: TreatyVisibility;
   effectiveWeek?: number;
   expiryWeek?: number | null;
   withdrawalNoticeWeeks?: number;
@@ -358,6 +361,7 @@ export interface Treaty {
   id: string;
   title: string;
   parties: [string, string];
+  visibility?: TreatyVisibility;
   signedWeek: number;
   effectiveWeek: number;
   expiryWeek: number | null;
@@ -445,6 +449,7 @@ export interface Proposal {
 export interface Negotiation {
   id: string;
   parties: [string, string];
+  visibility?: TreatyVisibility;
   initiatorId: string;
   motive: NegotiationMotive;
   status: NegotiationStatus;
@@ -463,6 +468,7 @@ export type EventKind = "trade" | "war" | "peace" | "economy" | "politics" | "di
 export interface EventNarrative {
   text: string;
   audienceCountryIds?: string[];
+  observerTextByCountry?: Record<string, string>;
   publicText?: string | null;
 }
 

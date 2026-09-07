@@ -168,6 +168,7 @@ export function recordDiplomaticMemory(
     sourceType: DiplomaticMemorySource;
     sourceId: string;
     description: string;
+    observerIds?: string[];
   },
 ) {
   ensureDiplomaticState(world);
@@ -191,8 +192,10 @@ export function recordDiplomaticMemory(
   cache.keys.add(key);
   cache.observedLength = world.diplomaticMemories.length;
 
+  const authorizedObservers = event.observerIds ? new Set(event.observerIds) : null;
   for (const observer of world.countries) {
     if (observer.id === event.subjectId) continue;
+    if (authorizedObservers && !authorizedObservers.has(observer.id)) continue;
     const direct = observer.id === event.counterpartId;
     const delta = credibilityDelta(event.category, memory.severity, direct);
     if (delta !== 0) setCredibility(world, observer.id, event.subjectId, delta);

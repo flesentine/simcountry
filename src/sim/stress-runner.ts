@@ -71,6 +71,10 @@ let staleIntelligenceProfiles = 0;
 let activeReconAssignments = 0;
 let currentReconProfiles = 0;
 let reconnaissanceEvents = 0;
+let concealmentPostures = 0;
+let exaggerationPostures = 0;
+let currentDeceptionAffectedProfiles = 0;
+let currentReconAgainstDeception = 0;
 let imperfectMilitaryEstimates = 0;
 let imperfectEconomicAvailabilityEstimates = 0;
 let successfulBeliefDrivenTradeEvents = 0;
@@ -426,6 +430,16 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   ).length;
 
   invariant(Object.keys(world.intelligence.byObserver).length === world.countries.length, `seed ${seed}: intelligence observer count diverged`);
+  invariant(Object.keys(world.intelligence.deceptionByCountry).length === world.countries.length, `seed ${seed}: military deception posture count diverged`);
+  for (const country of world.countries) {
+    const posture = world.intelligence.deceptionByCountry[country.id];
+    invariant(Boolean(posture), `seed ${seed}: ${country.name} lost military deception posture`);
+    invariant(["none", "conceal", "exaggerate"].includes(posture!.mode), `seed ${seed}: ${country.name} deception mode invalid`);
+    invariant(Number.isFinite(posture!.strengthPct) && posture!.strengthPct >= 0 && posture!.strengthPct <= 18, `seed ${seed}: ${country.name} deception strength invalid`);
+    invariant(posture!.updatedWeek === world.week, `seed ${seed}: ${country.name} deception posture is stale`);
+    if (posture!.mode === "conceal") concealmentPostures++;
+    if (posture!.mode === "exaggerate") exaggerationPostures++;
+  }
   for (const observer of world.countries) {
     const profiles = world.intelligence.byObserver[observer.id];
     invariant(Boolean(profiles), `seed ${seed}: ${observer.name} lost intelligence state`);
@@ -449,6 +463,14 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(age >= 0, `seed ${seed}: future-dated intelligence observation`);
       if (age > 13) staleIntelligenceProfiles++;
       const subject = world.countries.find((country) => country.id === subjectId)!;
+      const deceptionPosture = world.intelligence.deceptionByCountry[subjectId]!;
+      if (
+        deceptionPosture.mode !== "none"
+        && profile.estimates.military.observedWeek === world.week
+      ) {
+        currentDeceptionAffectedProfiles++;
+        if (profile.collectionMethod === "recon") currentReconAgainstDeception++;
+      }
       if (Math.abs(profile.estimates.military.value - subject.military) > 0.05) imperfectMilitaryEstimates++;
       if (Math.abs(profile.estimates.foodExportable.value - getSellerExportableSurplus(subject, "food")) > 0.05) {
         imperfectEconomicAvailabilityEstimates++;
@@ -576,6 +598,10 @@ const summary = {
   activeReconAssignments,
   currentReconProfiles,
   reconnaissanceEvents,
+  concealmentPostures,
+  exaggerationPostures,
+  currentDeceptionAffectedProfiles,
+  currentReconAgainstDeception,
   imperfectMilitaryEstimates,
   imperfectEconomicAvailabilityEstimates,
   successfulBeliefDrivenTradeEvents,
@@ -634,6 +660,10 @@ invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile c
 invariant(activeReconAssignments === SEEDS.length * 8, `active reconnaissance assignment count ${activeReconAssignments} did not cover every observer`);
 invariant(currentReconProfiles === SEEDS.length * 8, `current reconnaissance profile count ${currentReconProfiles} did not cover every observer`);
 invariant(reconnaissanceEvents > SEEDS.length, "active reconnaissance retasking stopped reaching world history");
+invariant(concealmentPostures > 0, "military concealment never appeared in final stress states");
+invariant(exaggerationPostures > 0, "military exaggeration never appeared in final stress states");
+invariant(currentDeceptionAffectedProfiles > SEEDS.length, "military deception stopped affecting current intelligence collection");
+invariant(currentReconAgainstDeception > 0, "active reconnaissance never encountered a deceptive military posture");
 invariant(staleIntelligenceProfiles > 0, "intelligence never became stale");
 invariant(imperfectMilitaryEstimates > intelligenceProfiles * 0.5, "foreign military intelligence became implausibly omniscient");
 invariant(imperfectEconomicAvailabilityEstimates > intelligenceProfiles * 0.5, "foreign exportable-supply intelligence became implausibly omniscient");

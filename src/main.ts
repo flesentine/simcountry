@@ -225,6 +225,7 @@ function renderDiplomaticMemory(selected: Country) {
 }
 
 function renderForeignIntelligence(selected: Country) {
+  const reconAssignment = world.intelligence.reconByObserver[selected.id] ?? null;
   const profiles = world.countries
     .filter((country) => country.id !== selected.id)
     .map((subject) => {
@@ -238,8 +239,13 @@ function renderForeignIntelligence(selected: Country) {
       const exportability = RESOURCE_KEYS
         .map((resource) => `${resource} ~${fmt(profile.estimates[RESOURCE_EXPORT_INTELLIGENCE_METRIC[resource]].value, 1)}`)
         .join(" · ");
+      const activeRecon = reconAssignment?.subjectId === subject.id;
+      const collectionNote = activeRecon
+        ? `ACTIVE RECON · priority ${fmt(reconAssignment.priorityScore, 1)} · tasked ${weekLabel(reconAssignment.assignedWeek)}`
+        : `latest collection: ${profile.collectionMethod ?? "legacy"}`;
       return `<div>
-        <span>${subject.name}</span>
+        <span>${subject.name}${activeRecon ? " · RECON TARGET" : ""}</span>
+        <small>${collectionNote}</small>
         <small>military ~${fmt(military.value, 1)} (${fmt(military.low, 1)}–${fmt(military.high, 1)}) · readiness ~${fmt(readiness.value)}%</small>
         <small>exportable supply est. ${exportability}</small>
         <small>treasury ~$ ${fmt(treasury.value, 1)}B · confidence ${fmt(confidence)}% · observed ${age === 0 ? "this week" : `${age}w ago`}</small>
@@ -247,8 +253,13 @@ function renderForeignIntelligence(selected: Country) {
     })
     .join("");
 
+  const reconSummary = reconAssignment
+    ? `Active recon: ${countryById(reconAssignment.subjectId)?.name ?? reconAssignment.subjectId} · priority ${fmt(reconAssignment.priorityScore, 1)}`
+    : "Active recon begins at the first quarterly collection review.";
+
   return `
     <h3>Foreign intelligence</h3>
+    <p class="muted">${reconSummary}</p>
     <div class="relations intelligence-list">
       ${profiles || "<p>No foreign intelligence available.</p>"}
     </div>`;

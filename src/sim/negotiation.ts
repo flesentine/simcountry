@@ -500,10 +500,13 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
   }
 
   if (motive === "security") {
+    const visibility = proposedTreatyVisibility(proposer, recipient, motive);
     return {
-      title: `${proposer.name}–${recipient.name} Non-Aggression Accord`,
+      title: visibility === "secret"
+        ? `${proposer.name}–${recipient.name} Confidential Security Protocol`
+        : `${proposer.name}–${recipient.name} Non-Aggression Accord`,
       parties: [proposer.id, recipient.id],
-      visibility: proposedTreatyVisibility(proposer, recipient, motive),
+      visibility,
       effectiveWeek,
       expiryWeek: world.week + 208,
       withdrawalNoticeWeeks: 26,

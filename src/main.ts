@@ -2,6 +2,7 @@ import "./style.css";
 import "./map.css";
 import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from "./model/types";
 import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
+import { visibleWorldEventViews } from "./sim/events";
 import { negotiationSummaryFor } from "./sim/negotiation";
 import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./sim/intelligence";
 import { treatySummaryFor } from "./sim/treaties";
@@ -271,6 +272,10 @@ function render() {
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
   const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
   const openNegotiations = world.negotiations.filter((negotiation) => negotiation.status === "open").length;
+  const historyViews = viewMode === "god"
+    ? world.events.map((event) => ({ event, text: event.text }))
+    : visibleWorldEventViews(world.events, selected.id);
+  const displayedHistory = historyViews.slice(0, 40);
   app.innerHTML = `
     <header class="topbar">
       <div>
@@ -384,10 +389,10 @@ function render() {
         </section>
 
         <section class="panel history">
-          <div class="panel-heading"><h2>World history</h2><span>${world.events.length} total · latest 40</span></div>
+          <div class="panel-heading"><h2>${viewMode === "god" ? "World history" : "Observer history"}</h2><span>${historyViews.length} visible · latest 40</span></div>
           <div class="event-list" aria-live="polite">
-            ${world.events.slice(0, 40).map((event) => `
-              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${escapeHtml(event.text)}</p></div></article>
+            ${displayedHistory.map(({ event, text }) => `
+              <article class="event ${event.kind}"><i>${eventIcon(event)}</i><div><small>${weekLabel(event.week)}</small><p>${escapeHtml(text)}</p></div></article>
             `).join("")}
           </div>
         </section>

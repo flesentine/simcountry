@@ -12,6 +12,7 @@ import type {
   Resource,
   TreatyClauseDraft,
   TreatyDraft,
+  TreatyVisibility,
   WorldState,
 } from "../model/types";
 import { getCredibility, recordDiplomaticMemory } from "./diplomacy";
@@ -455,6 +456,20 @@ export function assessPotentialCreditorFromBelief(
   };
 }
 
+export function proposedTreatyVisibility(proposer: Country, recipient: Country, motive: NegotiationMotive): TreatyVisibility {
+  if (motive !== "security") return "public";
+  const relation = proposer.relations[recipient.id];
+  const secrecyPressure =
+    proposer.government.agenda.internalSecurity * 0.24
+    + proposer.government.agenda.defensePosture * 0.16
+    + proposer.government.leader.traits.ambition * 0.12
+    + proposer.government.leader.traits.nationalism * 0.12
+    + proposer.policy.risk * 0.10
+    + (relation?.tension ?? 0) * 0.18
+    - proposer.government.agenda.diplomaticEngagement * 0.08;
+  return secrecyPressure >= 45 ? "secret" : "public";
+}
+
 function draftForMotive(world: WorldState, proposer: Country, recipient: Country, motive: NegotiationMotive): TreatyDraft | null {
   const effectiveWeek = world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS;
   if (motive === "trade_access") {
@@ -488,6 +503,7 @@ function draftForMotive(world: WorldState, proposer: Country, recipient: Country
     return {
       title: `${proposer.name}–${recipient.name} Non-Aggression Accord`,
       parties: [proposer.id, recipient.id],
+      visibility: proposedTreatyVisibility(proposer, recipient, motive),
       effectiveWeek,
       expiryWeek: world.week + 208,
       withdrawalNoticeWeeks: 26,
@@ -595,12 +611,34 @@ function loanEvaluationIntelligenceNote(world: WorldState, evaluator: Country, d
   return ` Creditor intelligence assessed ${debtorName} at ~${round(assessment.perceivedTreasury, 1)} treasury, ~${round(assessment.perceivedPopulation, 1)} population and ${round(assessment.perceivedFiscalStress, 1)} fiscal stress at ${Math.round(assessment.intelligenceConfidence)}% confidence from ${assessment.intelligenceAgeWeeks}-week-old reporting.`;
 }
 
-function privateDiplomaticNarrative(fullText: string, publicText: string, audienceCountryId: string): EventMessage {
+function privateDiplomaticNarrative(
+  draft: TreatyDraft,
+  fullText: string,
+  counterpartyText: string,
+  audienceCountryId: string,
+): EventMessage {
+  if (draft.visibility === "secret") {
+    const observerTextByCountry = Object.fromEntries(
+      draft.parties.map((countryId) => [countryId, countryId === audienceCountryId ? fullText : counterpartyText]),
+    );
+    return {
+      text: fullText,
+      audienceCountryIds: [...draft.parties],
+      observerTextByCountry,
+      publicText: null,
+    };
+  }
   return {
     text: fullText,
     audienceCountryIds: [audienceCountryId],
-    publicText,
+    publicText: counterpartyText,
   };
+}
+
+function agreementNarrative(draft: TreatyDraft, text: string): EventMessage {
+  return draft.visibility === "secret"
+    ? { text, audienceCountryIds: [...draft.parties], publicText: null }
+    : text;
 }
 
 function defensiveDraft(world: WorldState, draft: TreatyDraft, proposingCountry: Country) {
@@ -614,6 +652,7 @@ function makeCounterDraft(world: WorldState, proposal: Proposal, counteringCount
   const draft: TreatyDraft = {
     title: proposal.draft.title,
     parties: [...proposal.draft.parties] as [string, string],
+    visibility: proposal.draft.visibility ?? "public",
     effectiveWeek: Math.max(world.week + 1, proposal.draft.effectiveWeek ?? world.week + NEGOTIATED_EFFECTIVE_DELAY_WEEKS),
     expiryWeek: proposal.draft.expiryWeek,
     withdrawalNoticeWeeks: proposal.draft.withdrawalNoticeWeeks,
@@ -702,6 +741,7 @@ function startNegotiation(world: WorldState, proposer: Country, recipient: Count
   const negotiation: Negotiation = {
     id,
     parties: [proposer.id, recipient.id],
+    visibility: draft.visibility ?? "public",
     initiatorId: proposer.id,
     motive,
     status: "open",
@@ -728,7 +768,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
     proposal.status = "rejected";
     proposal.decisionReason = "counterparty missing";
     terminalize(negotiation, "cancelled", world, "counterparty_missing");
-    return "A diplomatic negotiation is cancelled because a counterparty no longer exists.";
+    return agreementNarrative(proposal.draft, "A diplomatic negotiation is cancelled because a counterparty no longer exists.");
   }
 
   const evaluation = evaluateTreatyProposal(world, recipient, proposal.draft, proposal.id, proposal.round);
@@ -742,7 +782,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       proposal.decisionReason = `execution validation failed: ${result.errors.join("; ")}`;
       terminalize(negotiation, "rejected", world, proposal.decisionReason);
       const publicText = `${recipient.name}'s cabinet cannot execute the proposed ${negotiationMotiveLabel(negotiation.motive)} deal with ${proposer.name}; conditions changed before signature.`;
-      return privateDiplomaticNarrative(`${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
+      return privateDiplomaticNarrative(proposal.draft, `${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
     }
     proposal.status = "accepted";
     proposal.decisionReason = `cabinet approved at ${evaluation.totalScore}/${evaluation.threshold}`;
@@ -750,6 +790,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
     terminalize(negotiation, "accepted", world, "treaty_signed", true);
     const publicText = `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"}; ${result.treaty.id} enters the treaty system.`;
     return privateDiplomaticNarrative(
+      proposal.draft,
       `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"} (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}); ${result.treaty.id} enters the treaty system.${loanIntelligenceNote}`,
       publicText,
       recipient.id,
@@ -765,6 +806,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
         proposal.decisionReason = `cabinet countered at ${evaluation.totalScore}/${evaluation.threshold}`;
         const publicText = `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}.`;
         return privateDiplomaticNarrative(
+          proposal.draft,
           `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.${loanIntelligenceNote}`,
           publicText,
           recipient.id,
@@ -784,7 +826,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       description: `${recipient.name}'s cabinet sought revision but could not authorize a viable counterproposal to ${proposer.name}.`,
     });
     const publicText = `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.`;
-    return privateDiplomaticNarrative(`${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
+    return privateDiplomaticNarrative(proposal.draft, `${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
   }
 
   proposal.status = "rejected";
@@ -801,6 +843,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
   });
   const publicText = `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal.`;
   return privateDiplomaticNarrative(
+    proposal.draft,
     `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}).${loanIntelligenceNote}`,
     publicText,
     recipient.id,
@@ -856,6 +899,7 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       const intelligenceNote = initiationIntelligenceNote(world, proposer, candidate.recipient, candidate.motive);
       const publicText = `${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; ${started.proposal.draft.title} is proposed.`;
       messages.push(privateDiplomaticNarrative(
+        started.proposal.draft,
         `${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.${intelligenceNote}`,
         publicText,
         proposer.id,
@@ -881,7 +925,7 @@ export function processNegotiations(world: WorldState, rng: NegotiationRng) {
       current.status = "rejected";
       current.decisionReason = "war began during negotiation";
       terminalize(negotiation, "cancelled", world, "war_began_during_negotiation");
-      messages.push(`${countryById(world, negotiation.parties[0])?.name ?? negotiation.parties[0]} and ${countryById(world, negotiation.parties[1])?.name ?? negotiation.parties[1]} suspend diplomatic talks as war begins.`);
+      messages.push(agreementNarrative(current.draft, `${countryById(world, negotiation.parties[0])?.name ?? negotiation.parties[0]} and ${countryById(world, negotiation.parties[1])?.name ?? negotiation.parties[1]} suspend diplomatic talks as war begins.`));
       continue;
     }
     if (current.status !== "pending") continue;
@@ -889,7 +933,7 @@ export function processNegotiations(world: WorldState, rng: NegotiationRng) {
       current.status = "expired";
       current.decisionReason = "proposal response window expired";
       terminalize(negotiation, "expired", world, "proposal_expired");
-      messages.push(`${current.draft.title} expires without agreement.`);
+      messages.push(agreementNarrative(current.draft, `${current.draft.title} expires without agreement.`));
       continue;
     }
     if (world.week - current.createdWeek < RESPONSE_DELAY_WEEKS) continue;

@@ -476,3 +476,82 @@ Active reconnaissance also exposed one cross-phase calibration interaction: shar
 
 The architectural boundary remains: **belief chooses where to look; collection may then learn imperfectly from truth; only authoritative world mechanics can change reality.**
 
+## Phase 5.6 — Military Deception
+
+Phase 5.6 lets governments deliberately distort foreign military observation without changing authoritative military truth.
+
+The scope is intentionally narrow. Deception affects only observed military strength and readiness. Population, treasury, stability and exportable-supply intelligence remain unchanged.
+
+### Deception posture is a subject-country decision
+
+Each country carries a serialized military-deception posture:
+
+- none
+- conceal
+- exaggerate
+
+The posture is chosen from information the country legitimately knows about itself:
+
+- expansionism and risk policy
+- leader ambition and nationalism
+- Defense Ministry competence
+- defense and internal-security agenda
+- the country's own bilateral tension values
+- its own stability
+
+The posture chooser does not inspect foreign countries' hidden military, readiness, treasury, population, resources or needs.
+
+Concealment is associated with revisionist/risk-tolerant governments trying to hide capability. Exaggeration is associated with high external tension and deterrence pressure. Deception strength is bounded by the state's own defense and security capacity.
+
+### Deception changes the apparent signal, not truth
+
+When another country observes a deceptive subject, the intelligence layer starts from authoritative truth but applies the subject's deception bias before normal deterministic measurement noise.
+
+This means an observer may be confidently wrong.
+
+- concealment shifts apparent military strength/readiness downward
+- exaggeration shifts them upward
+- the underlying military and readiness values are never mutated
+- confidence does not automatically reveal that the observation was manipulated
+
+The existing intelligence-only deterministic RNG still supplies ordinary collection noise. Deception therefore changes the information signal without consuming the simulation's weekly RNG stream.
+
+### Reconnaissance counters but does not defeat deception
+
+Active reconnaissance from Phase 5.5 reduces the residual deception bias more than routine or baseline collection.
+
+Recon effectiveness depends partly on the observer's Foreign Ministry competence. Even strong reconnaissance does not force the deception bias to zero, so active collection is an advantage rather than an omniscience switch.
+
+The observer receives only the resulting estimate. Foreign-intelligence profiles do not expose a "deception detected" flag or the foreign country's true deception posture.
+
+### Observer UI
+
+A selected country may see its own current military-deception posture because governments know the deception programs they themselves are running.
+
+Foreign country cards and foreign-intelligence estimates do not reveal whether a subject is concealing or exaggerating. Observer-limited world history, secret treaty visibility and map fog remain later Phase 5 work.
+
+### Serialized migration
+
+Older worlds without military-deception state repair one current posture per country without rewriting stored foreign estimates or authoritative country truth.
+
+### Phase 5.6 verification contract
+
+Regression coverage requires:
+
+- changing foreign hidden state cannot change another country's deception posture
+- under the same truth, observer, week and deterministic RNG, concealment lowers military/readiness estimates and exaggeration raises them
+- deception leaves population, treasury, stability and exportable-supply estimates unchanged
+- active reconnaissance attenuates deception more than routine collection but does not reduce the bias to zero
+- collecting deceptive intelligence cannot mutate authoritative military/readiness truth
+- legacy intelligence state can add deception postures without rewriting stored beliefs
+
+The 100-seed × 500-year stress population additionally requires:
+
+- serialized deception posture coverage for every country
+- both concealment and exaggeration remain reachable
+- current quarterly collection actually encounters deceptive states
+- active reconnaissance sometimes collects against a deceptive state
+- all earlier intelligence, war, trade, negotiation and treaty-rarity gates remain satisfied
+
+The architectural boundary remains: **a country may manipulate what others observe, but it cannot manipulate authoritative reality.**
+

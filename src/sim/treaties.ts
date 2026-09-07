@@ -40,7 +40,7 @@ function secretTreatyObservers(treaty: Treaty) {
   return treaty.visibility === "secret" ? [...treaty.parties] : undefined;
 }
 
-function treatyNarrative(treaty: Treaty, text: string): EventMessage {
+export function treatyEventNarrative(treaty: Treaty, text: string): EventMessage {
   return treaty.visibility === "secret"
     ? { text, audienceCountryIds: [...treaty.parties], publicText: null }
     : text;
@@ -521,7 +521,7 @@ export function breachNonAggressionForWar(world: WorldState, attackerId: string,
       deliberate: true,
     });
     syncTreatyCache(world, treaty);
-    messages.push(treatyNarrative(treaty, `${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`));
+    messages.push(treatyEventNarrative(treaty, `${countryById(world, attackerId)?.name ?? attackerId} deliberately breaches ${treaty.title}'s non-aggression commitment against ${countryById(world, defenderId)?.name ?? defenderId}.`));
   }
   return messages;
 }
@@ -684,18 +684,18 @@ export function processTreaties(world: WorldState) {
   for (const treaty of [...cache.operational]) {
     if (treaty.status === "pending" && world.week >= treaty.effectiveWeek) {
       const activationFailure = activateTreaty(world, treaty);
-      if (activationFailure) messages.push(treatyNarrative(treaty, activationFailure));
-      else if (treaty.activatedWeek === world.week) messages.push(treatyNarrative(treaty, `${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`));
+      if (activationFailure) messages.push(treatyEventNarrative(treaty, activationFailure));
+      else if (treaty.activatedWeek === world.week) messages.push(treatyEventNarrative(treaty, `${treaty.title} enters into force between ${treaty.parties.join(" and ")}.`));
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.withdrawalEffectiveWeek !== null && world.week >= treaty.withdrawalEffectiveWeek) {
       terminateTreaty(world, treaty, "withdrawn");
-      messages.push(treatyNarrative(treaty, `${treaty.title} ends after its lawful withdrawal notice period.`));
+      messages.push(treatyEventNarrative(treaty, `${treaty.title} ends after its lawful withdrawal notice period.`));
     }
 
     if ((treaty.status === "active" || treaty.status === "pending") && treaty.expiryWeek !== null && world.week >= treaty.expiryWeek) {
       terminateTreaty(world, treaty, "expired");
-      messages.push(treatyNarrative(treaty, `${treaty.title} expires at the end of its agreed term.`));
+      messages.push(treatyEventNarrative(treaty, `${treaty.title} expires at the end of its agreed term.`));
     }
 
     if (treaty.activatedWeek !== null) {
@@ -710,7 +710,7 @@ export function processTreaties(world: WorldState) {
       treaty.status = "fulfilled";
       treaty.terminalReason = "term_completed";
       recordTreatyHonored(world, treaty);
-      messages.push(treatyNarrative(treaty, `${treaty.title} is fulfilled after all obligations are completed.`));
+      messages.push(treatyEventNarrative(treaty, `${treaty.title} is fulfilled after all obligations are completed.`));
     }
     syncTreatyCache(world, treaty);
   }

@@ -1,8 +1,10 @@
 import type {
   Country,
   CountryIntelligence,
+  IntelligenceCollectionMethod,
   IntelligenceEstimate,
   IntelligenceMetric,
+  MilitaryDeceptionPosture,
   Resource,
   WorldState,
 } from "../model/types";
@@ -66,6 +68,72 @@ function truthFor(subject: Country, metric: IntelligenceMetric) {
   return getSellerExportableSurplus(subject, "goods");
 }
 
+export function militaryDeceptionPostureFor(world: WorldState, country: Country): MilitaryDeceptionPosture {
+  const government = country.government;
+  const maxTension = Math.max(0, ...Object.values(country.relations).map((relation) => relation.tension));
+  const concealPressure =
+    country.policy.expansionism * 0.36
+    + country.policy.risk * 0.14
+    + government.leader.traits.ambition * 0.18
+    + government.agenda.defensePosture * 0.18
+    + government.ministries.defense.competence * 0.08;
+  const exaggeratePressure =
+    maxTension * 0.34
+    + government.agenda.defensePosture * 0.22
+    + government.leader.traits.nationalism * 0.16
+    + (100 - country.stability) * 0.10
+    + government.ministries.defense.competence * 0.08;
+
+  const mode = concealPressure >= 58 && concealPressure >= exaggeratePressure + 4
+    ? "conceal"
+    : exaggeratePressure >= 52
+      ? "exaggerate"
+      : "none";
+  const strengthPct = mode === "none"
+    ? 0
+    : round(clamp(
+      5
+        + government.ministries.defense.competence * 0.08
+        + government.agenda.internalSecurity * 0.05
+        + government.leader.traits.nationalism * 0.025,
+      6,
+      18,
+    ));
+
+  return { mode, strengthPct, updatedWeek: world.week };
+}
+
+export function updateMilitaryDeceptionPostures(world: WorldState) {
+  world.intelligence.deceptionByCountry ??= {};
+  for (const country of world.countries) {
+    world.intelligence.deceptionByCountry[country.id] = militaryDeceptionPostureFor(world, country);
+  }
+  return world.intelligence.deceptionByCountry;
+}
+
+export function militaryDeceptionObservationBias(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  metric: IntelligenceMetric,
+  collectionMethod: IntelligenceCollectionMethod,
+) {
+  if (metric !== "military" && metric !== "readiness") return 0;
+  const posture = world.intelligence.deceptionByCountry?.[subject.id];
+  if (!posture || posture.mode === "none" || posture.strengthPct <= 0) return 0;
+
+  const foreignCompetence = observer.government.ministries.foreign.competence / 100;
+  const basePenetration = collectionMethod === "recon" ? 0.48 : collectionMethod === "routine" ? 0.18 : 0.10;
+  const competencePenetration = foreignCompetence * (collectionMethod === "recon" ? 0.26 : 0.12);
+  const penetration = clamp(basePenetration + competencePenetration, 0, 0.78);
+  const residualStrength = posture.strengthPct * (1 - penetration);
+  const direction = posture.mode === "conceal" ? -1 : 1;
+
+  return metric === "military"
+    ? subject.military * direction * residualStrength / 100
+    : direction * residualStrength * 0.75;
+}
+
 function observationConfidence(
   world: WorldState,
   observer: Country,
@@ -115,9 +183,11 @@ function estimateMetric(
   subject: Country,
   metric: IntelligenceMetric,
   observedWeek: number,
+  collectionMethod: IntelligenceCollectionMethod = "routine",
   confidenceBonus = 0,
 ): IntelligenceEstimate {
   const truth = truthFor(subject, metric);
+  const apparentTruth = truth + militaryDeceptionObservationBias(world, observer, subject, metric, collectionMethod);
   const confidence = observationConfidence(world, observer, subject, metric, confidenceBonus);
   const uncertaintyFactor = 1.15 - confidence * 0.0075;
   const rng = observationRng(world, observer.id, subject.id, metric, observedWeek);
@@ -133,7 +203,7 @@ function estimateMetric(
   }
 
   const noise = (rng.next() * 2 - 1) * radius * 0.72;
-  let value = truth + noise;
+  let value = apparentTruth + noise;
   let low = value - radius;
   let high = value + radius;
   if (metric === "population" || metric === "military" || economicSignal) {
@@ -154,30 +224,31 @@ function estimateMetric(
   };
 }
 
-function observeCountry(
+export function collectCountryIntelligence(
   world: WorldState,
   observer: Country,
   subject: Country,
   observedWeek: number,
-  collectionMethod: "baseline" | "routine" | "recon" = "routine",
+  collectionMethod: IntelligenceCollectionMethod = "routine",
   confidenceBonus = 0,
 ): CountryIntelligence {
   return {
     subjectId: subject.id,
     estimates: Object.fromEntries(
-      INTELLIGENCE_METRICS.map((metric) => [metric, estimateMetric(world, observer, subject, metric, observedWeek, confidenceBonus)]),
+      INTELLIGENCE_METRICS.map((metric) => [metric, estimateMetric(world, observer, subject, metric, observedWeek, collectionMethod, confidenceBonus)]),
     ) as Record<IntelligenceMetric, IntelligenceEstimate>,
     collectionMethod,
   };
 }
 
 export function initializeIntelligence(world: WorldState) {
-  world.intelligence = { byObserver: {}, reconByObserver: {} };
+  world.intelligence = { byObserver: {}, reconByObserver: {}, deceptionByCountry: {} };
+  updateMilitaryDeceptionPostures(world);
   for (const observer of world.countries) {
     const subjects: Record<string, CountryIntelligence> = {};
     for (const subject of world.countries) {
       if (subject.id === observer.id) continue;
-      subjects[subject.id] = observeCountry(world, observer, subject, world.week, "baseline");
+      subjects[subject.id] = collectCountryIntelligence(world, observer, subject, world.week, "baseline");
     }
     world.intelligence.byObserver[observer.id] = subjects;
     world.intelligence.reconByObserver[observer.id] = null;
@@ -186,8 +257,12 @@ export function initializeIntelligence(world: WorldState) {
 }
 
 export function ensureIntelligence(world: WorldState) {
-  world.intelligence ??= { byObserver: {}, reconByObserver: {} };
+  world.intelligence ??= { byObserver: {}, reconByObserver: {}, deceptionByCountry: {} };
   world.intelligence.reconByObserver ??= {};
+  world.intelligence.deceptionByCountry ??= {};
+  for (const country of world.countries) {
+    world.intelligence.deceptionByCountry[country.id] ??= militaryDeceptionPostureFor(world, country);
+  }
   for (const observer of world.countries) {
     const subjects = world.intelligence.byObserver[observer.id] ?? (world.intelligence.byObserver[observer.id] = {});
     world.intelligence.reconByObserver[observer.id] ??= null;
@@ -198,7 +273,7 @@ export function ensureIntelligence(world: WorldState) {
       }
       const existing = subjects[subject.id];
       if (!existing) {
-        subjects[subject.id] = observeCountry(world, observer, subject, world.week, "routine");
+        subjects[subject.id] = collectCountryIntelligence(world, observer, subject, world.week, "routine");
         continue;
       }
       existing.collectionMethod ??= "routine";
@@ -208,7 +283,7 @@ export function ensureIntelligence(world: WorldState) {
       // remain intact instead of being silently re-observed on load.
       const estimates = existing.estimates as Partial<Record<IntelligenceMetric, IntelligenceEstimate>>;
       for (const metric of INTELLIGENCE_METRICS) {
-        estimates[metric] ??= estimateMetric(world, observer, subject, metric, world.week);
+        estimates[metric] ??= estimateMetric(world, observer, subject, metric, world.week, existing.collectionMethod ?? "routine");
       }
     }
   }
@@ -260,6 +335,7 @@ export function selectReconTargetFromBelief(world: WorldState, observer: Country
 export function updateIntelligence(world: WorldState) {
   if (world.week === 0 || world.week % 13 !== 0) return [] as string[];
   ensureIntelligence(world);
+  updateMilitaryDeceptionPostures(world);
 
   const cycle = Math.floor(world.week / 13) - 1;
   const assignments: string[] = [];
@@ -277,7 +353,7 @@ export function updateIntelligence(world: WorldState) {
           assignedWeek: world.week,
           priorityScore: reconTarget.priorityScore,
         };
-        world.intelligence.byObserver[observer.id]![subject.id] = observeCountry(
+        world.intelligence.byObserver[observer.id]![subject.id] = collectCountryIntelligence(
           world,
           observer,
           subject,
@@ -295,7 +371,7 @@ export function updateIntelligence(world: WorldState) {
     for (let step = 0; step < subjects.length; step++) {
       const routineSubject = subjects[(offset + step) % subjects.length]!;
       if (routineSubject.id === reconTarget?.subjectId) continue;
-      world.intelligence.byObserver[observer.id]![routineSubject.id] = observeCountry(
+      world.intelligence.byObserver[observer.id]![routineSubject.id] = collectCountryIntelligence(
         world,
         observer,
         routineSubject,

@@ -267,6 +267,7 @@ function renderForeignIntelligence(selected: Country) {
 
 function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
+  const selectedDeception = world.intelligence.deceptionByCountry[selected.id];
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
   const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
   const openNegotiations = world.negotiations.filter((negotiation) => negotiation.status === "open").length;
@@ -364,6 +365,7 @@ function render() {
             <span>Commerce <b>${selected.policy.commerce}</b></span>
             <span>Diplomacy <b>${selected.policy.diplomacy}</b></span>
             <span>Stability <b>${fmt(selected.stability)}%</b></span>
+            <span>Military deception <b>${selectedDeception && selectedDeception.mode !== "none" ? `${systemLabel(selectedDeception.mode)} ${fmt(selectedDeception.strengthPct, 1)}%` : "None"}</b></span>
           </div>
           ${renderGovernment(selected)}
           ${renderTreaties(selected)}

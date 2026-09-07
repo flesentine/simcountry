@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { WorldState } from "../model/types";
 import {
+  collectCountryIntelligence,
   effectiveIntelConfidence,
   ensureIntelligence,
   getCountryIntelligence,
   intelligenceProfileAge,
+  militaryDeceptionObservationBias,
+  militaryDeceptionPostureFor,
   selectReconTargetFromBelief,
   updateIntelligence,
 } from "./intelligence";
@@ -139,6 +142,108 @@ describe("Phase 5.0 subjective intelligence", () => {
 
     expect(world.intelligence.reconByObserver).toBeDefined();
     expect(world.intelligence.reconByObserver[observer.id]).toBeNull();
+    expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
+  });
+
+  test("military deception posture does not inspect foreign hidden state", () => {
+    const world = createInitialWorld(1978);
+    const subject = world.countries[0]!;
+    const before = militaryDeceptionPostureFor(world, subject);
+
+    for (const foreign of world.countries.filter((country) => country.id !== subject.id)) {
+      foreign.population = 10_000;
+      foreign.treasury = -100_000;
+      foreign.military = 50_000;
+      foreign.readiness = 100;
+      foreign.stability = 0;
+      for (const resource of ["food", "energy", "metals", "goods"] as const) {
+        foreign.resources[resource] = 100_000;
+        foreign.needs[resource] = 0.1;
+      }
+    }
+
+    expect(militaryDeceptionPostureFor(world, subject)).toEqual(before);
+  });
+
+  test("concealment and exaggeration move the same deterministic observation in opposite directions", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    subject.military = 100;
+    subject.readiness = 70;
+    const observedWeek = 26;
+
+    world.intelligence.deceptionByCountry[subject.id] = { mode: "none", strengthPct: 0, updatedWeek: observedWeek };
+    const baseline = collectCountryIntelligence(world, observer, subject, observedWeek, "routine");
+
+    world.intelligence.deceptionByCountry[subject.id] = { mode: "conceal", strengthPct: 18, updatedWeek: observedWeek };
+    const concealed = collectCountryIntelligence(world, observer, subject, observedWeek, "routine");
+
+    world.intelligence.deceptionByCountry[subject.id] = { mode: "exaggerate", strengthPct: 18, updatedWeek: observedWeek };
+    const exaggerated = collectCountryIntelligence(world, observer, subject, observedWeek, "routine");
+
+    expect(concealed.estimates.military.value).toBeLessThan(baseline.estimates.military.value);
+    expect(exaggerated.estimates.military.value).toBeGreaterThan(baseline.estimates.military.value);
+    expect(concealed.estimates.readiness.value).toBeLessThan(baseline.estimates.readiness.value);
+    expect(exaggerated.estimates.readiness.value).toBeGreaterThan(baseline.estimates.readiness.value);
+    expect(concealed.estimates.military.confidence).toBe(baseline.estimates.military.confidence);
+    expect(exaggerated.estimates.military.confidence).toBe(baseline.estimates.military.confidence);
+    expect(concealed.estimates.readiness.confidence).toBe(baseline.estimates.readiness.confidence);
+    expect(exaggerated.estimates.readiness.confidence).toBe(baseline.estimates.readiness.confidence);
+
+    for (const metric of ["population", "treasury", "stability", "foodExportable", "energyExportable", "metalsExportable", "goodsExportable"] as const) {
+      expect(concealed.estimates[metric]).toEqual(baseline.estimates[metric]);
+      expect(exaggerated.estimates[metric]).toEqual(baseline.estimates[metric]);
+    }
+  });
+
+  test("active reconnaissance attenuates military deception without revealing perfect truth", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    world.intelligence.deceptionByCountry[subject.id] = { mode: "conceal", strengthPct: 18, updatedWeek: world.week };
+
+    const routineMilitaryBias = militaryDeceptionObservationBias(world, observer, subject, "military", "routine");
+    const reconMilitaryBias = militaryDeceptionObservationBias(world, observer, subject, "military", "recon");
+    const routineReadinessBias = militaryDeceptionObservationBias(world, observer, subject, "readiness", "routine");
+    const reconReadinessBias = militaryDeceptionObservationBias(world, observer, subject, "readiness", "recon");
+
+    expect(Math.abs(reconMilitaryBias)).toBeLessThan(Math.abs(routineMilitaryBias));
+    expect(Math.abs(reconReadinessBias)).toBeLessThan(Math.abs(routineReadinessBias));
+    expect(reconMilitaryBias).not.toBe(0);
+    expect(reconReadinessBias).not.toBe(0);
+  });
+
+  test("deception collection cannot mutate authoritative military truth", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const before = {
+      military: subject.military,
+      readiness: subject.readiness,
+      capacity: subject.militaryCapacity,
+    };
+
+    world.intelligence.deceptionByCountry[subject.id] = { mode: "exaggerate", strengthPct: 18, updatedWeek: world.week };
+    collectCountryIntelligence(world, observer, subject, world.week, "recon", 16);
+
+    expect({
+      military: subject.military,
+      readiness: subject.readiness,
+      capacity: subject.militaryCapacity,
+    }).toEqual(before);
+  });
+
+  test("legacy intelligence repairs deception posture without rewriting stored beliefs", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const before = structuredClone(getCountryIntelligence(world, observer.id, subject.id));
+    delete (world.intelligence as Partial<typeof world.intelligence>).deceptionByCountry;
+
+    ensureIntelligence(world);
+
+    expect(Object.keys(world.intelligence.deceptionByCountry)).toHaveLength(world.countries.length);
     expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 

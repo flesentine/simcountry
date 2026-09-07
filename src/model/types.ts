@@ -135,9 +135,18 @@ export interface ReconAssignment {
   priorityScore: number;
 }
 
+export type MilitaryDeceptionMode = "none" | "conceal" | "exaggerate";
+
+export interface MilitaryDeceptionPosture {
+  mode: MilitaryDeceptionMode;
+  strengthPct: number;
+  updatedWeek: number;
+}
+
 export interface IntelligenceState {
   byObserver: Record<string, Record<string, CountryIntelligence>>;
   reconByObserver: Record<string, ReconAssignment | null>;
+  deceptionByCountry: Record<string, MilitaryDeceptionPosture>;
 }
 
 export interface WorldCell {

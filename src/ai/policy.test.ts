@@ -7,7 +7,7 @@ import {
   nonAggressionFeasibilityBonus,
 } from "./policy";
 import { getBestTradeRoute } from "../sim/geography";
-import { getCountryIntelligence } from "../sim/intelligence";
+import { collectCountryIntelligence, getCountryIntelligence } from "../sim/intelligence";
 import { createInitialWorld } from "../sim/world";
 
 function prepareWarCase(seed = 1978) {
@@ -73,6 +73,36 @@ describe("Phase 5.1 belief-driven war assessment", () => {
     const overestimated = assessWarFromIntelligence(world, attacker, defender);
 
     expect(underestimated.appetite).toBeGreaterThan(overestimated.appetite);
+  });
+
+  test("military deception causally shifts belief-driven war appetite", () => {
+    const { world, attacker, defender } = prepareWarCase();
+    attacker.military = 80;
+    defender.military = 80;
+    defender.readiness = 70;
+    const observedWeek = 26;
+    world.week = observedWeek;
+
+    world.intelligence.deceptionByCountry[defender.id] = { mode: "none", strengthPct: 0, updatedWeek: observedWeek };
+    const baselineProfile = collectCountryIntelligence(world, attacker, defender, observedWeek, "routine");
+
+    world.intelligence.deceptionByCountry[defender.id] = { mode: "conceal", strengthPct: 18, updatedWeek: observedWeek };
+    const concealedProfile = collectCountryIntelligence(world, attacker, defender, observedWeek, "routine");
+
+    world.intelligence.deceptionByCountry[defender.id] = { mode: "exaggerate", strengthPct: 18, updatedWeek: observedWeek };
+    const exaggeratedProfile = collectCountryIntelligence(world, attacker, defender, observedWeek, "routine");
+
+    world.intelligence.byObserver[attacker.id]![defender.id] = baselineProfile;
+    const baseline = assessWarFromIntelligence(world, attacker, defender);
+    world.intelligence.byObserver[attacker.id]![defender.id] = concealedProfile;
+    const concealed = assessWarFromIntelligence(world, attacker, defender);
+    world.intelligence.byObserver[attacker.id]![defender.id] = exaggeratedProfile;
+    const exaggerated = assessWarFromIntelligence(world, attacker, defender);
+
+    expect(concealed.perceivedDefenderMilitary).toBeLessThan(baseline.perceivedDefenderMilitary);
+    expect(exaggerated.perceivedDefenderMilitary).toBeGreaterThan(baseline.perceivedDefenderMilitary);
+    expect(concealed.appetite).toBeGreaterThan(baseline.appetite);
+    expect(exaggerated.appetite).toBeLessThan(baseline.appetite);
   });
 
   test("perceived military advantage adds only a bounded pact-breach feasibility bonus", () => {

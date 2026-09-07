@@ -94,9 +94,9 @@ describe("Phase 5.1 belief-driven war assessment", () => {
   });
 
   test("military feasibility cannot create pact-breaking willingness by itself", () => {
-    expect(nonAggressionBreachGate(59, 12)).toEqual({ breachPressure: 71, eligible: false });
-    expect(nonAggressionBreachGate(60, 7)).toEqual({ breachPressure: 67, eligible: false });
-    expect(nonAggressionBreachGate(60, 8)).toEqual({ breachPressure: 68, eligible: true });
+    expect(nonAggressionBreachGate(63, 12)).toEqual({ breachPressure: 75, eligible: false });
+    expect(nonAggressionBreachGate(64, 3)).toEqual({ breachPressure: 67, eligible: false });
+    expect(nonAggressionBreachGate(64, 4)).toEqual({ breachPressure: 68, eligible: true });
     expect(nonAggressionBreachGate(75, 0)).toEqual({ breachPressure: 75, eligible: true });
   });
 

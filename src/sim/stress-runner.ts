@@ -68,6 +68,9 @@ const finalCohesion: number[] = [];
 const finalDissent: number[] = [];
 let intelligenceProfiles = 0;
 let staleIntelligenceProfiles = 0;
+let activeReconAssignments = 0;
+let currentReconProfiles = 0;
+let reconnaissanceEvents = 0;
 let imperfectMilitaryEstimates = 0;
 let imperfectEconomicAvailabilityEstimates = 0;
 let successfulBeliefDrivenTradeEvents = 0;
@@ -418,6 +421,9 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   }
 
   successfulBeliefDrivenTradeEvents += world.events.filter((event) => event.kind === "trade").length;
+  reconnaissanceEvents += world.events.filter(
+    (event) => event.kind === "world" && event.text.startsWith("Active reconnaissance retasked"),
+  ).length;
 
   invariant(Object.keys(world.intelligence.byObserver).length === world.countries.length, `seed ${seed}: intelligence observer count diverged`);
   for (const observer of world.countries) {
@@ -425,6 +431,16 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     invariant(Boolean(profiles), `seed ${seed}: ${observer.name} lost intelligence state`);
     invariant(Object.keys(profiles!).length === world.countries.length - 1, `seed ${seed}: ${observer.name} intelligence profile count diverged`);
     invariant(!profiles![observer.id], `seed ${seed}: ${observer.name} received a self-intelligence profile`);
+    const reconAssignment = world.intelligence.reconByObserver[observer.id];
+    invariant(Boolean(reconAssignment), `seed ${seed}: ${observer.name} lost active reconnaissance assignment`);
+    invariant(reconAssignment!.subjectId !== observer.id, `seed ${seed}: ${observer.name} targeted itself for reconnaissance`);
+    invariant(reconAssignment!.assignedWeek === world.week, `seed ${seed}: ${observer.name} reconnaissance assignment is stale`);
+    activeReconAssignments++;
+    const assignedProfile = profiles![reconAssignment!.subjectId];
+    invariant(Boolean(assignedProfile), `seed ${seed}: ${observer.name} reconnaissance target lacks an intelligence profile`);
+    invariant(assignedProfile!.collectionMethod === "recon", `seed ${seed}: ${observer.name} active reconnaissance did not produce a recon profile`);
+    invariant(assignedProfile!.estimates.population.observedWeek === reconAssignment!.assignedWeek, `seed ${seed}: ${observer.name} recon profile was not refreshed on assignment week`);
+    currentReconProfiles++;
     for (const [subjectId, profile] of Object.entries(profiles!)) {
       invariant(world.countries.some((country) => country.id === subjectId), `seed ${seed}: intelligence subject ${subjectId} missing`);
       invariant(profile.subjectId === subjectId, `seed ${seed}: intelligence subject key mismatch ${subjectId}`);
@@ -448,7 +464,8 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       for (const estimate of Object.values(profile.estimates)) {
         invariant([estimate.value, estimate.low, estimate.high, estimate.confidence, estimate.observedWeek].every(Number.isFinite), `seed ${seed}: non-finite intelligence estimate`);
         invariant(estimate.low <= estimate.value && estimate.value <= estimate.high, `seed ${seed}: intelligence interval does not contain estimate`);
-        invariant(estimate.confidence >= 20 && estimate.confidence <= 92, `seed ${seed}: intelligence confidence out of bounds`);
+        const confidenceCeiling = profile.collectionMethod === "recon" ? 98 : 92;
+        invariant(estimate.confidence >= 20 && estimate.confidence <= confidenceCeiling, `seed ${seed}: intelligence confidence out of bounds`);
         invariant(estimate.observedWeek <= world.week, `seed ${seed}: intelligence observation lies in the future`);
         intelligenceConfidence.push(estimate.confidence);
       }
@@ -556,6 +573,9 @@ const summary = {
   avgDissent,
   intelligenceProfiles,
   staleIntelligenceProfiles,
+  activeReconAssignments,
+  currentReconProfiles,
+  reconnaissanceEvents,
   imperfectMilitaryEstimates,
   imperfectEconomicAvailabilityEstimates,
   successfulBeliefDrivenTradeEvents,
@@ -611,6 +631,9 @@ invariant(avgCohesion > 18, `average cabinet cohesion ${avgCohesion} collapsed`)
 invariant(avgCohesion < 90, `average cabinet cohesion ${avgCohesion} saturated unrealistically`);
 invariant(avgDissent < 88, `average cabinet dissent ${avgDissent} is too high`);
 invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile count ${intelligenceProfiles} did not cover every foreign pair`);
+invariant(activeReconAssignments === SEEDS.length * 8, `active reconnaissance assignment count ${activeReconAssignments} did not cover every observer`);
+invariant(currentReconProfiles === SEEDS.length * 8, `current reconnaissance profile count ${currentReconProfiles} did not cover every observer`);
+invariant(reconnaissanceEvents > SEEDS.length, "active reconnaissance retasking stopped reaching world history");
 invariant(staleIntelligenceProfiles > 0, "intelligence never became stale");
 invariant(imperfectMilitaryEstimates > intelligenceProfiles * 0.5, "foreign military intelligence became implausibly omniscient");
 invariant(imperfectEconomicAvailabilityEstimates > intelligenceProfiles * 0.5, "foreign exportable-supply intelligence became implausibly omniscient");

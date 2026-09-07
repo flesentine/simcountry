@@ -1,5 +1,6 @@
 import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getTradeIntent, nonAggressionBreachGate, nonAggressionFeasibilityBonus } from "../ai/policy";
-import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
+import { RESOURCE_KEYS, type Country, type EventKind, type EventMessage, type Resource, type Truce, type WorldState } from "../model/types";
+import { recordWorldEvent } from "./events";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
 import { ensureDiplomaticState, nonAggressionBreachPressure, treatyWithdrawalDecision } from "./diplomacy";
@@ -18,9 +19,8 @@ const BASE_PRICE: Record<Resource, number> = { food: 1.1, energy: 1.8, metals: 2
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const round = (value: number) => Math.round(value * 10) / 10;
 
-function addEvent(world: WorldState, kind: EventKind, text: string) {
-  const event: WorldEvent = { id: world.nextEventId++, week: world.week, kind, text };
-  world.events.unshift(event);
+function addEvent(world: WorldState, kind: EventKind, message: EventMessage) {
+  recordWorldEvent(world, kind, message);
 }
 
 export function createInitialWorld(seed = 1978): WorldState {
@@ -223,7 +223,14 @@ function runTrade(world: WorldState) {
       const intelligenceNote = tradeAssessment.available
         ? ` Buyer intelligence estimated ~${Math.round(tradeAssessment.perceivedExportableSurplus)} exportable units at ${Math.round(tradeAssessment.intelligenceConfidence)}% confidence from ${tradeAssessment.intelligenceAgeWeeks}-week-old reporting.`
         : "";
-      addEvent(world, "trade", `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}${intelligenceNote}`);
+      const publicTradeText = `${buyer.name} imports ${Math.round(amount)} units of ${intent.resource} from ${seller.name} via a level-${route.level} ${route.infrastructure} corridor (${Math.round(route.usedThisWeek)}/${Math.round(route.capacity)} capacity used).${treatyNote}`;
+      addEvent(world, "trade", intelligenceNote
+        ? {
+          text: `${publicTradeText}${intelligenceNote}`,
+          audienceCountryIds: [buyer.id],
+          publicText: publicTradeText,
+        }
+        : publicTradeText);
     }
   }
 }
@@ -368,10 +375,15 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
         intelligenceObservedWeek: best.assessment.intelligenceObservedWeek,
       },
     });
+    const publicWarText = `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}. The first operational front is ${front?.id ?? "offshore"}.`;
     addEvent(
       world,
       "war",
-      `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; intelligence assessed ${defender.name} at ${Math.round(best.assessment.perceivedDefenderMilitary * 10) / 10} military and ${Math.round(best.assessment.perceivedDefenderReadiness)}% readiness with ${Math.round(best.assessment.intelligenceConfidence)}% confidence from ${best.assessment.intelligenceAgeWeeks}-week-old reporting. The first operational front is ${front?.id ?? "offshore"}.`,
+      {
+        text: `${attacker.name}'s government authorizes war on ${defender.name} across a viable ${world.geography.adjacency[attacker.id]?.includes(defender.id) ? "land frontier" : "maritime approach"}; intelligence assessed ${defender.name} at ${Math.round(best.assessment.perceivedDefenderMilitary * 10) / 10} military and ${Math.round(best.assessment.perceivedDefenderReadiness)}% readiness with ${Math.round(best.assessment.intelligenceConfidence)}% confidence from ${best.assessment.intelligenceAgeWeeks}-week-old reporting. The first operational front is ${front?.id ?? "offshore"}.`,
+        audienceCountryIds: [attacker.id],
+        publicText: publicWarText,
+      },
     );
   }
 }
@@ -485,7 +497,11 @@ export function tickWeek(world: WorldState): WorldState {
   }
 
   enforceStateBounds(world);
-  for (const message of updateIntelligence(world)) addEvent(world, "world", message);
+  for (const message of updateIntelligence(world)) addEvent(world, "world", {
+    text: message,
+    audienceCountryIds: [],
+    publicText: "Quarterly intelligence services retask collection priorities.",
+  });
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;
@@ -497,7 +513,12 @@ export function tickWeek(world: WorldState): WorldState {
     const routeNote = busiest && busiest.usedThisWeek > 0 ? ` The busiest route moved ${Math.round(busiest.usedThisWeek)} units.` : "";
     const infraNote = highestInfra ? ` Top infrastructure is level ${highestInfra.level} ${highestInfra.infrastructure}.` : "";
     const treatyNote = `${activeTreaties} ${activeTreaties === 1 ? "treaty is" : "treaties are"} active; ${openNegotiations} negotiation${openNegotiations === 1 ? " is" : "s are"} open.`;
-    addEvent(world, "world", `Year ${Math.floor(world.week / 52) + 1} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${treatyNote}`);
+    const year = Math.floor(world.week / 52) + 1;
+    addEvent(world, "world", {
+      text: `Year ${year} begins. ${richest.name} holds the world's largest treasury.${routeNote}${infraNote} ${blockades} route${blockades === 1 ? " is" : "s are"} under blockade; ${treatyNote}`,
+      audienceCountryIds: [],
+      publicText: `Year ${year} begins.`,
+    });
   }
   return world;
 }

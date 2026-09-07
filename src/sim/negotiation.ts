@@ -1,6 +1,7 @@
 import type {
   CabinetEvaluation,
   Country,
+  EventMessage,
   Ministry,
   MinistryKind,
   Negotiation,
@@ -594,6 +595,14 @@ function loanEvaluationIntelligenceNote(world: WorldState, evaluator: Country, d
   return ` Creditor intelligence assessed ${debtorName} at ~${round(assessment.perceivedTreasury, 1)} treasury, ~${round(assessment.perceivedPopulation, 1)} population and ${round(assessment.perceivedFiscalStress, 1)} fiscal stress at ${Math.round(assessment.intelligenceConfidence)}% confidence from ${assessment.intelligenceAgeWeeks}-week-old reporting.`;
 }
 
+function privateDiplomaticNarrative(fullText: string, publicText: string, audienceCountryId: string): EventMessage {
+  return {
+    text: fullText,
+    audienceCountryIds: [audienceCountryId],
+    publicText,
+  };
+}
+
 function defensiveDraft(world: WorldState, draft: TreatyDraft, proposingCountry: Country) {
   const parsed = parseTreatyDraftInput(draft);
   if (!parsed.ok) return null;
@@ -732,13 +741,19 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       proposal.status = "rejected";
       proposal.decisionReason = `execution validation failed: ${result.errors.join("; ")}`;
       terminalize(negotiation, "rejected", world, proposal.decisionReason);
-      return `${recipient.name}'s cabinet cannot execute the proposed ${negotiationMotiveLabel(negotiation.motive)} deal with ${proposer.name}; conditions changed before signature.${loanIntelligenceNote}`;
+      const publicText = `${recipient.name}'s cabinet cannot execute the proposed ${negotiationMotiveLabel(negotiation.motive)} deal with ${proposer.name}; conditions changed before signature.`;
+      return privateDiplomaticNarrative(`${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
     }
     proposal.status = "accepted";
     proposal.decisionReason = `cabinet approved at ${evaluation.totalScore}/${evaluation.threshold}`;
     negotiation.outcomeTreatyId = result.treaty.id;
     terminalize(negotiation, "accepted", world, "treaty_signed", true);
-    return `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"} (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}); ${result.treaty.id} enters the treaty system.${loanIntelligenceNote}`;
+    const publicText = `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"}; ${result.treaty.id} enters the treaty system.`;
+    return privateDiplomaticNarrative(
+      `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"} (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}); ${result.treaty.id} enters the treaty system.${loanIntelligenceNote}`,
+      publicText,
+      recipient.id,
+    );
   }
 
   if (evaluation.decision === "counter" && proposal.round < negotiation.maxRounds) {
@@ -748,7 +763,12 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       if (counter) {
         proposal.status = "countered";
         proposal.decisionReason = `cabinet countered at ${evaluation.totalScore}/${evaluation.threshold}`;
-        return `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.${loanIntelligenceNote}`;
+        const publicText = `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}.`;
+        return privateDiplomaticNarrative(
+          `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.${loanIntelligenceNote}`,
+          publicText,
+          recipient.id,
+        );
       }
     }
     proposal.status = "rejected";
@@ -763,7 +783,8 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       sourceId: proposal.id,
       description: `${recipient.name}'s cabinet sought revision but could not authorize a viable counterproposal to ${proposer.name}.`,
     });
-    return `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.${loanIntelligenceNote}`;
+    const publicText = `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.`;
+    return privateDiplomaticNarrative(`${publicText}${loanIntelligenceNote}`, publicText, recipient.id);
   }
 
   proposal.status = "rejected";
@@ -778,11 +799,16 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
     sourceId: proposal.id,
     description: `${recipient.name}'s cabinet rejected ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal.`,
   });
-  return `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}).${loanIntelligenceNote}`;
+  const publicText = `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal.`;
+  return privateDiplomaticNarrative(
+    `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}).${loanIntelligenceNote}`,
+    publicText,
+    recipient.id,
+  );
 }
 
 function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
-  const messages: string[] = [];
+  const messages: EventMessage[] = [];
   if (world.week % INITIATION_INTERVAL_WEEKS !== 0) return messages;
 
   const openCounts = new Map<string, number>();
@@ -828,7 +854,12 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
       openCounts.set(candidate.recipient.id, (openCounts.get(candidate.recipient.id) ?? 0) + 1);
       startedThisCycle += 1;
       const intelligenceNote = initiationIntelligenceNote(world, proposer, candidate.recipient, candidate.motive);
-      messages.push(`${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.${intelligenceNote}`);
+      const publicText = `${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; ${started.proposal.draft.title} is proposed.`;
+      messages.push(privateDiplomaticNarrative(
+        `${proposer.name} opens ${negotiationMotiveLabel(candidate.motive)} talks with ${candidate.recipient.name}; its cabinet authorizes ${started.proposal.draft.title} at utility ${started.proposal.evaluations[0]!.totalScore}.${intelligenceNote}`,
+        publicText,
+        proposer.id,
+      ));
       break;
     }
   }
@@ -837,7 +868,7 @@ function initiateNegotiations(world: WorldState, rng: NegotiationRng) {
 
 export function processNegotiations(world: WorldState, rng: NegotiationRng) {
   ensureNegotiationState(world);
-  const messages: string[] = [];
+  const messages: EventMessage[] = [];
 
   for (const negotiation of operationalNegotiations(world)) {
     if (negotiation.status !== "open") continue;

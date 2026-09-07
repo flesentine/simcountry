@@ -71,6 +71,9 @@ let staleIntelligenceProfiles = 0;
 let activeReconAssignments = 0;
 let currentReconProfiles = 0;
 let reconnaissanceEvents = 0;
+let restrictedHistoryEvents = 0;
+let sanitizedHistoryEvents = 0;
+let privateProvenanceEvents = 0;
 let concealmentPostures = 0;
 let exaggerationPostures = 0;
 let currentDeceptionAffectedProfiles = 0;
@@ -428,6 +431,24 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   reconnaissanceEvents += world.events.filter(
     (event) => event.kind === "world" && event.text.startsWith("Active reconnaissance retasked"),
   ).length;
+  for (const event of world.events) {
+    if (!event.audienceCountryIds) continue;
+    restrictedHistoryEvents++;
+    invariant(
+      event.audienceCountryIds.every((countryId) => world.countries.some((country) => country.id === countryId)),
+      `seed ${seed}: restricted event references an unknown audience country`,
+    );
+    if (event.publicText !== undefined && event.publicText !== null) {
+      sanitizedHistoryEvents++;
+      invariant(
+        !/Buyer intelligence estimated|intelligence assessed .*confidence|Intelligence estimated .*confidence|Creditor intelligence assessed|cabinet .*utility .*threshold|largest treasury|Active reconnaissance retasked/i.test(event.publicText),
+        `seed ${seed}: private intelligence provenance leaked into sanitized observer history`,
+      );
+    }
+    if (/Buyer intelligence estimated|intelligence assessed .*confidence|Intelligence estimated .*confidence|Creditor intelligence assessed|cabinet .*utility .*threshold|largest treasury|Active reconnaissance retasked/i.test(event.text)) {
+      privateProvenanceEvents++;
+    }
+  }
 
   invariant(Object.keys(world.intelligence.byObserver).length === world.countries.length, `seed ${seed}: intelligence observer count diverged`);
   invariant(Object.keys(world.intelligence.deceptionByCountry).length === world.countries.length, `seed ${seed}: military deception posture count diverged`);
@@ -598,6 +619,9 @@ const summary = {
   activeReconAssignments,
   currentReconProfiles,
   reconnaissanceEvents,
+  restrictedHistoryEvents,
+  sanitizedHistoryEvents,
+  privateProvenanceEvents,
   concealmentPostures,
   exaggerationPostures,
   currentDeceptionAffectedProfiles,
@@ -660,6 +684,9 @@ invariant(intelligenceProfiles === SEEDS.length * 8 * 7, `intelligence profile c
 invariant(activeReconAssignments === SEEDS.length * 8, `active reconnaissance assignment count ${activeReconAssignments} did not cover every observer`);
 invariant(currentReconProfiles === SEEDS.length * 8, `current reconnaissance profile count ${currentReconProfiles} did not cover every observer`);
 invariant(reconnaissanceEvents > SEEDS.length, "active reconnaissance retasking stopped reaching world history");
+invariant(restrictedHistoryEvents > SEEDS.length, "observer-limited history never became materially active");
+invariant(sanitizedHistoryEvents > SEEDS.length, "restricted history stopped producing sanitized observer narratives");
+invariant(privateProvenanceEvents > SEEDS.length, "authoritative history stopped retaining private causal provenance");
 invariant(concealmentPostures > 0, "military concealment never appeared in final stress states");
 invariant(exaggerationPostures > 0, "military exaggeration never appeared in final stress states");
 invariant(currentDeceptionAffectedProfiles > SEEDS.length, "military deception stopped affecting current intelligence collection");

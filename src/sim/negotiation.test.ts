@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Negotiation, Proposal, TreatyDraft } from "../model/types";
-import { assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
+import { assessDebtorRepaymentFromBelief, assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
 import { getCountryIntelligence } from "./intelligence";
 import { parseTreatyDraftInput, validateTreatyDraftInput } from "./treaty-input";
 import { validateTreatyDraft } from "./treaties";
@@ -578,3 +578,118 @@ describe("Phase 4.1 negotiation and government authorization", () => {
   });
 
 });
+
+describe("Phase 5.4 belief-driven loan evaluation", () => {
+  function loanCase() {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const creditor = world.countries.find((country) => country.id === route.a)!;
+    const debtor = world.countries.find((country) => country.id === route.b)!;
+    world.week = 52;
+    creditor.treasury = 500;
+    creditor.relations[debtor.id]!.trust = 55;
+    creditor.relations[debtor.id]!.tension = 20;
+    const profile = getCountryIntelligence(world, creditor.id, debtor.id)!;
+    profile.estimates.treasury = {
+      value: -60,
+      low: -100,
+      high: 10,
+      confidence: 65,
+      observedWeek: world.week - 26,
+    };
+    profile.estimates.population = {
+      value: 50,
+      low: 40,
+      high: 65,
+      confidence: 70,
+      observedWeek: world.week - 26,
+    };
+    const draft: TreatyDraft = {
+      title: "Belief-priced development loan",
+      parties: [creditor.id, debtor.id],
+      effectiveWeek: world.week + 8,
+      expiryWeek: world.week + 140,
+      withdrawalNoticeWeeks: 13,
+      clauses: [{
+        kind: "loan",
+        creditorId: creditor.id,
+        debtorId: debtor.id,
+        principal: 6,
+        installment: 0.75,
+        intervalWeeks: 13,
+        firstPaymentDelayWeeks: 13,
+      }],
+    };
+    return { world, creditor, debtor, draft };
+  }
+
+  test("creditor evaluation follows stored debtor belief rather than hidden fiscal truth", () => {
+    const { world, creditor, debtor, draft } = loanCase();
+    const beforeAssessment = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+    const before = evaluateTreatyProposal(world, creditor, draft, "proposal-belief", 1);
+
+    debtor.treasury = 100_000;
+    debtor.population = 1_000;
+
+    const afterAssessment = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+    const after = evaluateTreatyProposal(world, creditor, draft, "proposal-belief", 1);
+
+    expect(afterAssessment).toEqual(beforeAssessment);
+    expect(after).toEqual(before);
+  });
+
+  test("missing debtor intelligence becomes maximum uncertainty instead of revealing truth", () => {
+    const { world, creditor, debtor, draft } = loanCase();
+    delete world.intelligence.byObserver[creditor.id]![debtor.id];
+    debtor.treasury = 100_000;
+    debtor.population = 1_000;
+
+    const before = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+    const evaluationBefore = evaluateTreatyProposal(world, creditor, draft, "proposal-missing", 1);
+
+    debtor.treasury = -100_000;
+    debtor.population = 1;
+
+    const after = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+    const evaluationAfter = evaluateTreatyProposal(world, creditor, draft, "proposal-missing", 1);
+
+    expect(before.available).toBe(false);
+    expect(before.perceivedFiscalStress).toBe(100);
+    expect(after).toEqual(before);
+    expect(evaluationAfter).toEqual(evaluationBefore);
+  });
+
+  test("cautious creditors price stale low-confidence debtor intelligence more pessimistically", () => {
+    const { world, creditor, debtor } = loanCase();
+    const profile = getCountryIntelligence(world, creditor.id, debtor.id)!;
+    profile.estimates.treasury = {
+      value: -40,
+      low: -160,
+      high: 20,
+      confidence: 30,
+      observedWeek: world.week - 52,
+    };
+    profile.estimates.population = {
+      value: 50,
+      low: 25,
+      high: 80,
+      confidence: 30,
+      observedWeek: world.week - 52,
+    };
+
+    creditor.policy.risk = 0;
+    creditor.government.leader.traits.riskTolerance = 0;
+    const cautious = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+
+    creditor.policy.risk = 100;
+    creditor.government.leader.traits.riskTolerance = 100;
+    const riskTolerant = assessDebtorRepaymentFromBelief(world, creditor, debtor.id);
+
+    expect(cautious.available).toBe(true);
+    expect(cautious.perceivedTreasury).toBeLessThan(riskTolerant.perceivedTreasury);
+    expect(cautious.perceivedPopulation).toBeLessThan(riskTolerant.perceivedPopulation);
+    expect(cautious.perceivedFiscalStress).toBeGreaterThan(riskTolerant.perceivedFiscalStress);
+    expect(cautious.intelligenceAgeWeeks).toBe(52);
+  });
+});
+

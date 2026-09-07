@@ -153,11 +153,11 @@ function domainUtilities(world: WorldState, country: Country, draft: TreatyDraft
         add("stability", 7 + fiscalNeed * 0.06);
         add("diplomacy", 4);
       } else if (clause.creditorId === country.id) {
-        const debtor = countryById(world, clause.debtorId);
         const debtorRelation = country.relations[clause.debtorId];
         const reserve = Math.max(1, country.population * 6);
         const liquidityCost = clause.principal / reserve * 100;
-        const debtorStress = debtor ? clamp(-debtor.treasury / Math.max(1, debtor.population * 5) * 100) : 100;
+        const repaymentAssessment = assessDebtorRepaymentFromBelief(world, country, clause.debtorId);
+        const debtorStress = repaymentAssessment.perceivedFiscalStress;
         const trustValue = debtorRelation?.trust ?? 25;
         const debtorCredibility = getCredibility(world, country.id, clause.debtorId);
         const creditRisk = (100 - debtorCredibility) * 0.16 + debtorStress * 0.18 + liquidityCost * 0.30;
@@ -301,6 +301,61 @@ function hedgeTowardHigh(value: number, high: number, confidence: number, riskTo
   const uncertainty = clamp(1 - confidence / 100, 0, 1);
   const upperBoundShare = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
   return Math.max(0, value + Math.max(0, high - value) * upperBoundShare);
+}
+
+export interface DebtorRepaymentAssessment {
+  available: boolean;
+  perceivedTreasury: number;
+  perceivedPopulation: number;
+  perceivedFiscalStress: number;
+  intelligenceConfidence: number;
+  intelligenceAgeWeeks: number;
+}
+
+export function assessDebtorRepaymentFromBelief(
+  world: WorldState,
+  creditor: Country,
+  debtorId: string,
+): DebtorRepaymentAssessment {
+  const profile = getCountryIntelligence(world, creditor.id, debtorId);
+  const treasury = profile?.estimates.treasury;
+  const population = profile?.estimates.population;
+  if (!profile || !treasury || !population) {
+    return {
+      available: false,
+      perceivedTreasury: 0,
+      perceivedPopulation: 1,
+      perceivedFiscalStress: 100,
+      intelligenceConfidence: 0,
+      intelligenceAgeWeeks: 0,
+    };
+  }
+
+  const treasuryConfidence = effectiveIntelConfidence(treasury, world.week);
+  const populationConfidence = effectiveIntelConfidence(population, world.week);
+  const intelligenceConfidence = (treasuryConfidence + populationConfidence) / 2;
+  const observedWeek = Math.min(treasury.observedWeek, population.observedWeek);
+  const intelligenceAgeWeeks = Math.max(0, world.week - observedWeek);
+  const riskTolerance = decisionRiskTolerance(creditor);
+  const uncertainty = clamp(1 - intelligenceConfidence / 100, 0, 1);
+  const pessimism = uncertainty * (0.35 + (1 - riskTolerance) * 0.65);
+  const perceivedTreasury = treasury.value - Math.max(0, treasury.value - treasury.low) * pessimism;
+  const perceivedPopulation = Math.max(
+    1,
+    population.value - Math.max(0, population.value - population.low) * pessimism,
+  );
+  const perceivedFiscalStress = clamp(
+    -perceivedTreasury / Math.max(1, perceivedPopulation * 5) * 100,
+  );
+
+  return {
+    available: true,
+    perceivedTreasury,
+    perceivedPopulation,
+    perceivedFiscalStress,
+    intelligenceConfidence,
+    intelligenceAgeWeeks,
+  };
 }
 
 export interface PerceivedTradeOpportunity {
@@ -526,6 +581,19 @@ function initiationIntelligenceNote(world: WorldState, proposer: Country, recipi
   return "";
 }
 
+function loanEvaluationIntelligenceNote(world: WorldState, evaluator: Country, draft: TreatyDraft) {
+  const loan = draft.clauses.find(
+    (clause) => clause.kind === "loan" && clause.creditorId === evaluator.id,
+  );
+  if (!loan || loan.kind !== "loan") return "";
+  const assessment = assessDebtorRepaymentFromBelief(world, evaluator, loan.debtorId);
+  const debtorName = countryById(world, loan.debtorId)?.name ?? loan.debtorId;
+  if (!assessment.available) {
+    return ` Creditor intelligence on ${debtorName}'s fiscal position is unavailable; the cabinet applies maximum repayment-risk stress.`;
+  }
+  return ` Creditor intelligence assessed ${debtorName} at ~${round(assessment.perceivedTreasury, 1)} treasury, ~${round(assessment.perceivedPopulation, 1)} population and ${round(assessment.perceivedFiscalStress, 1)} fiscal stress at ${Math.round(assessment.intelligenceConfidence)}% confidence from ${assessment.intelligenceAgeWeeks}-week-old reporting.`;
+}
+
 function defensiveDraft(world: WorldState, draft: TreatyDraft, proposingCountry: Country) {
   const parsed = parseTreatyDraftInput(draft);
   if (!parsed.ok) return null;
@@ -656,6 +724,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
 
   const evaluation = evaluateTreatyProposal(world, recipient, proposal.draft, proposal.id, proposal.round);
   proposal.evaluations.push(evaluation);
+  const loanIntelligenceNote = loanEvaluationIntelligenceNote(world, recipient, proposal.draft);
 
   if (evaluation.decision === "approve") {
     const result = registerTreaty(world, proposal.draft);
@@ -663,13 +732,13 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       proposal.status = "rejected";
       proposal.decisionReason = `execution validation failed: ${result.errors.join("; ")}`;
       terminalize(negotiation, "rejected", world, proposal.decisionReason);
-      return `${recipient.name}'s cabinet cannot execute the proposed ${negotiationMotiveLabel(negotiation.motive)} deal with ${proposer.name}; conditions changed before signature.`;
+      return `${recipient.name}'s cabinet cannot execute the proposed ${negotiationMotiveLabel(negotiation.motive)} deal with ${proposer.name}; conditions changed before signature.${loanIntelligenceNote}`;
     }
     proposal.status = "accepted";
     proposal.decisionReason = `cabinet approved at ${evaluation.totalScore}/${evaluation.threshold}`;
     negotiation.outcomeTreatyId = result.treaty.id;
     terminalize(negotiation, "accepted", world, "treaty_signed", true);
-    return `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"} (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}); ${result.treaty.id} enters the treaty system.`;
+    return `${recipient.name}'s cabinet approves ${proposal.draft.title} after ${proposal.round} negotiation round${proposal.round === 1 ? "" : "s"} (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}); ${result.treaty.id} enters the treaty system.${loanIntelligenceNote}`;
   }
 
   if (evaluation.decision === "counter" && proposal.round < negotiation.maxRounds) {
@@ -679,7 +748,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       if (counter) {
         proposal.status = "countered";
         proposal.decisionReason = `cabinet countered at ${evaluation.totalScore}/${evaluation.threshold}`;
-        return `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.`;
+        return `${recipient.name}'s cabinet counters ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal in round ${counter.round}; utility ${evaluation.totalScore} is close to its ${evaluation.threshold} approval threshold.${loanIntelligenceNote}`;
       }
     }
     proposal.status = "rejected";
@@ -694,7 +763,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
       sourceId: proposal.id,
       description: `${recipient.name}'s cabinet sought revision but could not authorize a viable counterproposal to ${proposer.name}.`,
     });
-    return `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.`;
+    return `${recipient.name}'s cabinet seeks a counter to ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal, but cannot authorize a viable revised package; talks end without agreement.${loanIntelligenceNote}`;
   }
 
   proposal.status = "rejected";
@@ -709,7 +778,7 @@ function respondToProposal(world: WorldState, negotiation: Negotiation, proposal
     sourceId: proposal.id,
     description: `${recipient.name}'s cabinet rejected ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal.`,
   });
-  return `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}).`;
+  return `${recipient.name}'s cabinet rejects ${proposer.name}'s ${negotiationMotiveLabel(proposal.motive)} proposal (utility ${evaluation.totalScore}, threshold ${evaluation.threshold}).${loanIntelligenceNote}`;
 }
 
 function initiateNegotiations(world: WorldState, rng: NegotiationRng) {

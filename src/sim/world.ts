@@ -1,4 +1,4 @@
-import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getTradeIntent, nonAggressionFeasibilityBonus } from "../ai/policy";
+import { assessTradePartnerFromIntelligence, assessWarFromIntelligence, chooseTradePartner, getTradeIntent, nonAggressionBreachGate, nonAggressionFeasibilityBonus } from "../ai/policy";
 import { RESOURCE_KEYS, type Country, type EventKind, type Resource, type Truce, type WorldEvent, type WorldState } from "../model/types";
 import { captureBorderRegion, findFrontCell, generateGeography, hasStrategicAccess, resetRouteUsage, routeRemainingCapacity } from "./geography";
 import { createGovernment, governmentModifiers, runGovernments } from "./governance";
@@ -315,19 +315,20 @@ function maybeStartWars(world: WorldState, rng: ReturnType<typeof createRng>) {
         const nonAggression = isNonAggressionActive(world, attacker.id, defender.id);
         const assessment = assessWarFromIntelligence(world, attacker, defender);
         const baseBreachPressure = nonAggression ? nonAggressionBreachPressure(world, attacker, defender) : 100;
-        const breachPressure = nonAggression
-          ? clamp(baseBreachPressure + nonAggressionFeasibilityBonus(attacker, assessment))
-          : 100;
-        const breachFactor = nonAggression ? clamp((breachPressure - 52) / 48, 0.12, 0.72) : 1;
+        const breachGate = nonAggression
+          ? nonAggressionBreachGate(baseBreachPressure, nonAggressionFeasibilityBonus(attacker, assessment))
+          : { breachPressure: 100, eligible: true };
+        const breachFactor = nonAggression ? clamp((breachGate.breachPressure - 52) / 48, 0.12, 0.72) : 1;
         return {
           defender,
           nonAggression,
-          breachPressure,
+          breachPressure: breachGate.breachPressure,
+          breachEligible: breachGate.eligible,
           assessment,
           appetite: assessment.appetite * breachFactor,
         };
       })
-      .filter((candidate) => !candidate.nonAggression || candidate.breachPressure >= 68)
+      .filter((candidate) => !candidate.nonAggression || candidate.breachEligible)
       .sort((a, b) => b.appetite - a.appetite);
 
     const best = targets[0];

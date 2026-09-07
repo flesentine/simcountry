@@ -394,3 +394,81 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary remains: **belief governs whether the creditor wants the loan; authoritative treaty machinery governs whether the loan can actually be funded and executed.**
 
+## Phase 5.5 — Active Reconnaissance
+
+Phase 5.5 turns intelligence collection from a purely rotating background process into a limited, actively tasked government capability.
+
+The scope is deliberately narrow. Governments do not gain omniscient access, spy missions do not mutate foreign truth, and the total quarterly collection budget does not increase. One of the two existing foreign-profile refresh slots is retasked as active reconnaissance; the other remains a routine collection slot.
+
+### Recon targets are chosen from belief, not hidden truth
+
+Each observer chooses a reconnaissance target from information already available to that government:
+
+- intelligence age
+- effective intelligence confidence
+- bilateral tension
+- direct border access
+- direct transport-route access
+
+The target-selection score does not read the candidate country's live military, readiness, treasury, population, stability, resources or needs.
+
+This means changing a country's hidden state while holding the observer's stored beliefs and observable relationship/geography fixed cannot change which country is selected for reconnaissance.
+
+### Reconnaissance improves collection quality
+
+Once a target has been selected, the collection layer is allowed to observe authoritative truth through the same noisy measurement process used by ordinary intelligence collection.
+
+Active reconnaissance adds a bounded confidence bonus derived from the observer's own:
+
+- Foreign Ministry competence
+- diplomatic-policy investment
+
+The bonus narrows uncertainty but never produces perfect knowledge. Routine collection remains capped at the existing 92% confidence ceiling; active reconnaissance may reach at most 98%.
+
+Recon observations use the existing intelligence-specific deterministic RNG stream. Retasking collection therefore does not consume or perturb the simulation's normal weekly RNG.
+
+### Collection budget and staleness remain real
+
+Phase 5.5 does not add a third quarterly refresh.
+
+For each observer, every quarter:
+
+- one foreign profile is actively reconnoitered
+- one different foreign profile receives the normal routine refresh
+- all remaining foreign profiles continue aging
+
+This preserves incomplete and stale intelligence as a first-class simulation condition. Active collection creates an opportunity cost: prioritizing one target necessarily leaves other countries less observed.
+
+### Serialized state and provenance
+
+The current reconnaissance assignment is stored per observer with:
+
+- target country
+- assignment week
+- belief-derived priority score
+
+Profiles also retain whether their latest collection was baseline, routine or reconnaissance.
+
+Quarterly world history records the active retasking map so browser runs can verify that autonomous reconnaissance is actually occurring.
+
+Older serialized worlds without reconnaissance metadata repair the missing collection state without rewriting existing beliefs or authoritative world truth.
+
+### Phase 5.5 verification contract
+
+Regression coverage requires:
+
+- active reconnaissance replaces one routine slot rather than increasing the two-profile quarterly refresh budget
+- a recon target receives a higher-confidence observation than the same profile's routine/baseline observation under otherwise unchanged conditions
+- changing hidden foreign truth while holding the observer's beliefs fixed cannot change recon target selection
+- legacy intelligence state can add reconnaissance metadata without rewriting stored estimates
+
+The 100-seed × 500-year stress population additionally requires:
+
+- every observer retains a valid foreign reconnaissance assignment
+- the current assignment corresponds to a profile actually refreshed by reconnaissance
+- reconnaissance retasking continues to reach world history
+- stale foreign profiles still exist
+- all earlier belief-driven war, trade and diplomacy gates remain satisfied
+
+The architectural boundary remains: **belief chooses where to look; collection may then learn imperfectly from truth; only authoritative world mechanics can change reality.**
+

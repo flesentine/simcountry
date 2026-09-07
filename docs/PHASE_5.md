@@ -555,3 +555,106 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary remains: **a country may manipulate what others observe, but it cannot manipulate authoritative reality.**
 
+## Phase 5.7 — Intelligence-Provenance Visibility
+
+Phase 5.7 separates the authoritative causal event ledger from what a country is allowed to read in Intelligence Mode.
+
+The world still records one canonical event stream. God Mode sees that stream exactly. Intelligence Mode derives an observer-specific view from the same events instead of maintaining a second, divergent history.
+
+### Restricted event narratives
+
+A world event may now carry:
+
+- full authoritative text
+- an optional authorized country audience
+- an optional sanitized public text
+
+Legacy events without an audience remain fully public.
+
+For a restricted event:
+
+- an authorized observer sees the full causal text
+- an unauthorized observer sees only the sanitized public text
+- if no public text exists, the event is hidden from that observer
+
+Unauthorized access therefore fails closed.
+
+### Private intelligence provenance no longer leaks globally
+
+The first migration covers the Phase 5 causal details that were previously visible to every Intelligence Mode observer.
+
+#### War authorization
+
+The attacker may see the intelligence estimate, confidence and age that supported its war decision.
+
+Other observers see only the public fact that war was authorized and the operational front that opened.
+
+#### Trade decisions
+
+The buyer may see its perceived exportable-supply estimate and confidence.
+
+Other observers see the completed trade and treaty terms but not the buyer's private supplier intelligence.
+
+#### Economic diplomacy and financing
+
+A proposer may see its own cabinet utility and intelligence basis for opening trade-access or financing talks.
+
+A recipient cabinet may see its own evaluation threshold and creditor-side debtor intelligence.
+
+Other countries see only the public diplomatic outcome: talks opened, a proposal was countered, accepted, rejected or failed execution.
+
+#### Reconnaissance retasking
+
+God Mode retains the complete quarterly map of active reconnaissance assignments.
+
+Intelligence Mode does not receive other governments' target assignments. It sees only a sanitized quarterly collection-review event; the selected country's current assignment remains visible in its own intelligence inspector.
+
+#### Yearly omniscient summaries
+
+God Mode retains authoritative yearly comparisons such as the world's largest treasury and exact global diplomatic counts.
+
+Intelligence Mode receives only the neutral year-boundary event rather than those omniscient comparisons.
+
+### Observer UI
+
+God Mode continues to show **World history**.
+
+Intelligence Mode now shows **Observer history**. Its event count is the number of narratives actually visible to the selected country, and its latest-40 feed uses observer-authorized or sanitized text from the canonical ledger.
+
+Changing the selected country can therefore change the visible wording and count without changing authoritative history.
+
+### Scope boundary
+
+Phase 5.7 is a visibility substrate, not complete fog of war.
+
+Still deferred:
+
+- secret-agreement creation and treaty visibility
+- incomplete discovery of wars and other public events
+- map fog / territorial uncertainty
+- intelligence collection about hidden agreements
+
+Those can now build on the restricted-event primitive without creating a parallel history system.
+
+### Phase 5.7 verification contract
+
+Regression coverage requires:
+
+- legacy public events remain visible to all observers
+- authorized observers receive full restricted detail
+- unauthorized observers receive only sanitized public text
+- restricted events with no public fallback fail closed
+- restricted recording creates only one authoritative event
+- quarterly reconnaissance keeps full God Mode provenance while observer history receives no target-assignment leak
+
+The 100-seed × 500-year stress population additionally requires:
+
+- restricted history is materially exercised
+- sanitized observer narratives remain present
+- authoritative history retains private causal provenance
+- restricted audiences reference only real countries
+- sanitized public text contains none of the frozen private intelligence/cabinet provenance markers
+- all earlier intelligence, deception, war, trade, diplomacy and treaty-rarity gates remain satisfied
+
+The architectural boundary is: **truth records the full cause once; each observer reads only the portion it is authorized to know.**
+

@@ -159,6 +159,17 @@ export function nonAggressionFeasibilityBonus(attacker: Country, assessment: War
   return Math.max(0, Math.min(12, (perceivedRatio - 1) * 8));
 }
 
+export function nonAggressionBreachGate(basePoliticalPressure: number, feasibilityBonus: number) {
+  const breachPressure = Math.max(0, Math.min(100, basePoliticalPressure + feasibilityBonus));
+  return {
+    breachPressure,
+    // Intelligence can tell a government that breaking a pact looks militarily
+    // feasible, but it cannot manufacture the underlying political willingness
+    // to violate the commitment. Preserve that separation explicitly.
+    eligible: basePoliticalPressure >= 64 && breachPressure >= 68,
+  };
+}
+
 export function assessWarFromIntelligence(world: WorldState, attacker: Country, defender: Country): WarIntelligenceAssessment {
   const profile = getCountryIntelligence(world, attacker.id, defender.id);
   if (!profile) {

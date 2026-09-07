@@ -3,6 +3,7 @@ import {
   assessTradePartnerFromIntelligence,
   assessWarFromIntelligence,
   chooseTradePartner,
+  nonAggressionBreachGate,
   nonAggressionFeasibilityBonus,
 } from "./policy";
 import { getBestTradeRoute } from "../sim/geography";
@@ -90,6 +91,13 @@ describe("Phase 5.1 belief-driven war assessment", () => {
     expect(weakBonus).toBeLessThanOrEqual(12);
     expect(nonAggressionFeasibilityBonus(attacker, strongDefender)).toBe(0);
     expect(nonAggressionFeasibilityBonus(attacker, { ...weakDefender, available: false })).toBe(0);
+  });
+
+  test("military feasibility cannot create pact-breaking willingness by itself", () => {
+    expect(nonAggressionBreachGate(63, 12)).toEqual({ breachPressure: 75, eligible: false });
+    expect(nonAggressionBreachGate(64, 3)).toEqual({ breachPressure: 67, eligible: false });
+    expect(nonAggressionBreachGate(64, 4)).toEqual({ breachPressure: 68, eligible: true });
+    expect(nonAggressionBreachGate(75, 0)).toEqual({ breachPressure: 75, eligible: true });
   });
 
   test("cautious governments hedge low-confidence intelligence toward the upper bound", () => {

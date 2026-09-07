@@ -66,7 +66,13 @@ function truthFor(subject: Country, metric: IntelligenceMetric) {
   return getSellerExportableSurplus(subject, "goods");
 }
 
-function observationConfidence(world: WorldState, observer: Country, subject: Country, metric: IntelligenceMetric) {
+function observationConfidence(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  metric: IntelligenceMetric,
+  confidenceBonus = 0,
+) {
   const relation = observer.relations[subject.id];
   const foreignMinistry = observer.government.ministries.foreign;
   const tradeMinistry = observer.government.ministries.trade;
@@ -96,9 +102,10 @@ function observationConfidence(world: WorldState, observer: Country, subject: Co
       + (directBorder ? 12 : 0)
       + (directRoute ? 7 : 0)
       + tradeSignal
-      + metricModifier,
+      + metricModifier
+      + confidenceBonus,
     20,
-    92,
+    confidenceBonus > 0 ? 98 : 92,
   ));
 }
 
@@ -108,9 +115,10 @@ function estimateMetric(
   subject: Country,
   metric: IntelligenceMetric,
   observedWeek: number,
+  confidenceBonus = 0,
 ): IntelligenceEstimate {
   const truth = truthFor(subject, metric);
-  const confidence = observationConfidence(world, observer, subject, metric);
+  const confidence = observationConfidence(world, observer, subject, metric, confidenceBonus);
   const uncertaintyFactor = 1.15 - confidence * 0.0075;
   const rng = observationRng(world, observer.id, subject.id, metric, observedWeek);
 
@@ -146,32 +154,43 @@ function estimateMetric(
   };
 }
 
-function observeCountry(world: WorldState, observer: Country, subject: Country, observedWeek: number): CountryIntelligence {
+function observeCountry(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  observedWeek: number,
+  collectionMethod: "baseline" | "routine" | "recon" = "routine",
+  confidenceBonus = 0,
+): CountryIntelligence {
   return {
     subjectId: subject.id,
     estimates: Object.fromEntries(
-      INTELLIGENCE_METRICS.map((metric) => [metric, estimateMetric(world, observer, subject, metric, observedWeek)]),
+      INTELLIGENCE_METRICS.map((metric) => [metric, estimateMetric(world, observer, subject, metric, observedWeek, confidenceBonus)]),
     ) as Record<IntelligenceMetric, IntelligenceEstimate>,
+    collectionMethod,
   };
 }
 
 export function initializeIntelligence(world: WorldState) {
-  world.intelligence = { byObserver: {} };
+  world.intelligence = { byObserver: {}, reconByObserver: {} };
   for (const observer of world.countries) {
     const subjects: Record<string, CountryIntelligence> = {};
     for (const subject of world.countries) {
       if (subject.id === observer.id) continue;
-      subjects[subject.id] = observeCountry(world, observer, subject, world.week);
+      subjects[subject.id] = observeCountry(world, observer, subject, world.week, "baseline");
     }
     world.intelligence.byObserver[observer.id] = subjects;
+    world.intelligence.reconByObserver[observer.id] = null;
   }
   return world.intelligence;
 }
 
 export function ensureIntelligence(world: WorldState) {
-  world.intelligence ??= { byObserver: {} };
+  world.intelligence ??= { byObserver: {}, reconByObserver: {} };
+  world.intelligence.reconByObserver ??= {};
   for (const observer of world.countries) {
     const subjects = world.intelligence.byObserver[observer.id] ?? (world.intelligence.byObserver[observer.id] = {});
+    world.intelligence.reconByObserver[observer.id] ??= null;
     for (const subject of world.countries) {
       if (subject.id === observer.id) {
         delete subjects[subject.id];
@@ -179,9 +198,10 @@ export function ensureIntelligence(world: WorldState) {
       }
       const existing = subjects[subject.id];
       if (!existing) {
-        subjects[subject.id] = observeCountry(world, observer, subject, world.week);
+        subjects[subject.id] = observeCountry(world, observer, subject, world.week, "routine");
         continue;
       }
+      existing.collectionMethod ??= "routine";
 
       // Serialized Phase 5.0/5.1 worlds do not contain the Phase 5.2 economic
       // signals. Repair only missing metrics so existing historical beliefs
@@ -195,21 +215,100 @@ export function ensureIntelligence(world: WorldState) {
   return world.intelligence;
 }
 
+function reconnaissanceConfidenceBonus(observer: Country) {
+  return round(clamp(
+    8
+      + observer.government.ministries.foreign.competence * 0.08
+      + observer.policy.diplomacy * 0.04,
+    8,
+    20,
+  ));
+}
+
+export function selectReconTargetFromBelief(world: WorldState, observer: Country) {
+  const profiles = world.intelligence?.byObserver[observer.id];
+  if (!profiles) return null;
+
+  const candidates = world.countries
+    .filter((subject) => subject.id !== observer.id)
+    .map((subject) => {
+      const profile = profiles[subject.id];
+      if (!profile) return null;
+      const relation = observer.relations[subject.id];
+      const age = intelligenceProfileAge(profile, world.week);
+      const confidence = intelligenceProfileConfidence(profile, world.week);
+      const directBorder = world.geography.adjacency[observer.id]?.includes(subject.id) ?? false;
+      const directRoute = world.geography.routes.some((route) =>
+        (route.a === observer.id && route.b === subject.id)
+        || (route.b === observer.id && route.a === subject.id),
+      );
+      const priorityScore = round(
+        age * 0.45
+          + (100 - confidence) * 0.35
+          + (relation?.tension ?? 50) * 0.25
+          + (directBorder ? 12 : 0)
+          + (directRoute ? 5 : 0),
+      );
+      return { subjectId: subject.id, priorityScore };
+    })
+    .filter((candidate): candidate is { subjectId: string; priorityScore: number } => candidate !== null)
+    .sort((a, b) => b.priorityScore - a.priorityScore || a.subjectId.localeCompare(b.subjectId));
+
+  return candidates[0] ?? null;
+}
+
 export function updateIntelligence(world: WorldState) {
-  if (world.week === 0 || world.week % 13 !== 0) return;
+  if (world.week === 0 || world.week % 13 !== 0) return [] as string[];
   ensureIntelligence(world);
 
   const cycle = Math.floor(world.week / 13) - 1;
+  const assignments: string[] = [];
   for (let observerIndex = 0; observerIndex < world.countries.length; observerIndex++) {
     const observer = world.countries[observerIndex]!;
     const subjects = world.countries.filter((subject) => subject.id !== observer.id);
     if (!subjects.length) continue;
-    const offset = (cycle * 2 + observerIndex) % subjects.length;
-    for (let refreshIndex = 0; refreshIndex < Math.min(2, subjects.length); refreshIndex++) {
-      const subject = subjects[(offset + refreshIndex) % subjects.length]!;
-      world.intelligence.byObserver[observer.id]![subject.id] = observeCountry(world, observer, subject, world.week);
+
+    const reconTarget = selectReconTargetFromBelief(world, observer);
+    if (reconTarget) {
+      const subject = subjects.find((candidate) => candidate.id === reconTarget.subjectId);
+      if (subject) {
+        world.intelligence.reconByObserver[observer.id] = {
+          subjectId: subject.id,
+          assignedWeek: world.week,
+          priorityScore: reconTarget.priorityScore,
+        };
+        world.intelligence.byObserver[observer.id]![subject.id] = observeCountry(
+          world,
+          observer,
+          subject,
+          world.week,
+          "recon",
+          reconnaissanceConfidenceBonus(observer),
+        );
+        assignments.push(`${observer.name}→${subject.name}`);
+      }
+    } else {
+      world.intelligence.reconByObserver[observer.id] = null;
+    }
+
+    const offset = (cycle + observerIndex) % subjects.length;
+    for (let step = 0; step < subjects.length; step++) {
+      const routineSubject = subjects[(offset + step) % subjects.length]!;
+      if (routineSubject.id === reconTarget?.subjectId) continue;
+      world.intelligence.byObserver[observer.id]![routineSubject.id] = observeCountry(
+        world,
+        observer,
+        routineSubject,
+        world.week,
+        "routine",
+      );
+      break;
     }
   }
+
+  return assignments.length
+    ? [`Active reconnaissance retasked from subjective collection priorities: ${assignments.join(", ")}.`]
+    : [];
 }
 
 export function getCountryIntelligence(world: WorldState, observerId: string, subjectId: string) {

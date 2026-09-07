@@ -121,13 +121,23 @@ export interface IntelligenceEstimate {
   observedWeek: number;
 }
 
+export type IntelligenceCollectionMethod = "baseline" | "routine" | "recon";
+
 export interface CountryIntelligence {
   subjectId: string;
   estimates: Record<IntelligenceMetric, IntelligenceEstimate>;
+  collectionMethod?: IntelligenceCollectionMethod;
+}
+
+export interface ReconAssignment {
+  subjectId: string;
+  assignedWeek: number;
+  priorityScore: number;
 }
 
 export interface IntelligenceState {
   byObserver: Record<string, Record<string, CountryIntelligence>>;
+  reconByObserver: Record<string, ReconAssignment | null>;
 }
 
 export interface WorldCell {

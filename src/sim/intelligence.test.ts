@@ -5,6 +5,8 @@ import {
   ensureIntelligence,
   getCountryIntelligence,
   intelligenceProfileAge,
+  selectReconTargetFromBelief,
+  updateIntelligence,
 } from "./intelligence";
 import { getSellerExportableSurplus } from "./trade";
 import { createInitialWorld, tickWeek } from "./world";
@@ -63,6 +65,81 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(intelligenceProfileAge(staleProfile, world.week)).toBe(13);
     expect(effectiveIntelConfidence(staleProfile.estimates.military, world.week))
       .toBeLessThan(staleProfile.estimates.military.confidence);
+  });
+
+  test("active reconnaissance replaces one routine refresh slot and improves collection confidence", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 13;
+
+    const target = selectReconTargetFromBelief(world, observer);
+    expect(target).not.toBeNull();
+    const before = getCountryIntelligence(world, observer.id, target!.subjectId)!;
+    const beforeConfidence = before.estimates.military.confidence;
+
+    const messages = updateIntelligence(world);
+    const assignment = world.intelligence.reconByObserver[observer.id];
+    expect(assignment).not.toBeNull();
+    expect(assignment!.subjectId).toBe(target!.subjectId);
+    expect(assignment!.assignedWeek).toBe(13);
+
+    const profiles = Object.values(world.intelligence.byObserver[observer.id]!);
+    const refreshed = profiles.filter((profile) => profile.estimates.population.observedWeek === 13);
+    expect(refreshed).toHaveLength(2);
+
+    const reconProfile = getCountryIntelligence(world, observer.id, target!.subjectId)!;
+    expect(reconProfile.collectionMethod).toBe("recon");
+    expect(reconProfile.estimates.military.confidence).toBeGreaterThan(beforeConfidence);
+    expect(refreshed.filter((profile) => profile.collectionMethod === "routine")).toHaveLength(1);
+    expect(messages.join(" ")).toContain("Active reconnaissance retasked");
+  });
+
+  test("recon target selection follows stored beliefs rather than hidden foreign truth", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 39;
+    const foreign = world.countries.filter((country) => country.id !== observer.id);
+    const priority = foreign[2]!;
+
+    for (const subject of foreign) {
+      const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+      for (const estimate of Object.values(profile.estimates)) {
+        estimate.confidence = subject.id === priority.id ? 20 : 92;
+        estimate.observedWeek = subject.id === priority.id ? 0 : 38;
+      }
+      observer.relations[subject.id]!.tension = subject.id === priority.id ? 100 : 0;
+    }
+
+    const before = selectReconTargetFromBelief(world, observer);
+    expect(before?.subjectId).toBe(priority.id);
+
+    for (const subject of foreign) {
+      subject.population = subject.id === priority.id ? 10_000 : 1;
+      subject.treasury = subject.id === priority.id ? 100_000 : -100_000;
+      subject.military = subject.id === priority.id ? 1 : 10_000;
+      subject.readiness = subject.id === priority.id ? 0 : 100;
+      subject.stability = subject.id === priority.id ? 0 : 100;
+      for (const resource of ["food", "energy", "metals", "goods"] as const) {
+        subject.resources[resource] = subject.id === priority.id ? 0 : 100_000;
+        subject.needs[resource] = subject.id === priority.id ? 100_000 : 0.1;
+      }
+    }
+
+    expect(selectReconTargetFromBelief(world, observer)).toEqual(before);
+  });
+
+  test("legacy intelligence repairs missing reconnaissance state without rewriting beliefs", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const before = structuredClone(getCountryIntelligence(world, observer.id, subject.id));
+    delete (world.intelligence as Partial<typeof world.intelligence>).reconByObserver;
+
+    ensureIntelligence(world);
+
+    expect(world.intelligence.reconByObserver).toBeDefined();
+    expect(world.intelligence.reconByObserver[observer.id]).toBeNull();
+    expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 
   test("belief state cannot directly overwrite authoritative truth", () => {

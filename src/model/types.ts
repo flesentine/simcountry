@@ -460,11 +460,18 @@ export interface Negotiation {
 
 export type EventKind = "trade" | "war" | "peace" | "economy" | "politics" | "diplomacy" | "world";
 
-export interface WorldEvent {
+export interface EventNarrative {
+  text: string;
+  audienceCountryIds?: string[];
+  publicText?: string | null;
+}
+
+export type EventMessage = string | EventNarrative;
+
+export interface WorldEvent extends EventNarrative {
   id: number;
   week: number;
   kind: EventKind;
-  text: string;
 }
 
 export interface WorldState {

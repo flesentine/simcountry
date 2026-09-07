@@ -166,7 +166,7 @@ export function nonAggressionBreachGate(basePoliticalPressure: number, feasibili
     // Intelligence can tell a government that breaking a pact looks militarily
     // feasible, but it cannot manufacture the underlying political willingness
     // to violate the commitment. Preserve that separation explicitly.
-    eligible: basePoliticalPressure >= 60 && breachPressure >= 68,
+    eligible: basePoliticalPressure >= 64 && breachPressure >= 68,
   };
 }
 

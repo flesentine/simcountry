@@ -472,7 +472,7 @@ The 100-seed × 500-year stress population additionally requires:
 - stale foreign profiles still exist
 - all earlier belief-driven war, trade and diplomacy gates remain satisfied
 
-Active reconnaissance also exposed one cross-phase calibration interaction: sharper military estimates made the older Phase 5.1 non-aggression feasibility bonus too influential in treaty-breaking decisions. The pact-breach path now requires substantial political breach pressure before intelligence may contribute its bounded military-feasibility bonus. Reconnaissance quality is unchanged; treaty-breaking remains fundamentally political rather than being manufactured by better information.
+Active reconnaissance also exposed one cross-phase calibration interaction: sharper military estimates made the older Phase 5.1 non-aggression feasibility bonus too influential in treaty-breaking decisions. The pact-breach path now requires political breach pressure of at least 64 before intelligence may help cross the existing 68-point eligibility threshold, so military feasibility can supply at most the final four threshold points. Reconnaissance quality is unchanged; treaty-breaking remains fundamentally political rather than being manufactured by better information.
 
 The architectural boundary remains: **belief chooses where to look; collection may then learn imperfectly from truth; only authoritative world mechanics can change reality.**
 

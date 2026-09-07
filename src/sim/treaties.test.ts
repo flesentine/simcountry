@@ -315,7 +315,7 @@ describe("SimCountry phase 4.0 treaty engine", () => {
       injuredPartyId: b.id,
       reason: "non_aggression_breach",
     }));
-    expect(messages.some((message) => message.includes("recorded as breached"))).toBe(true);
+    expect(messages.some((message) => (typeof message === "string" ? message : message.text).includes("recorded as breached"))).toBe(true);
   });
 
   test("lawful withdrawal observes notice and then removes treaty effects", () => {

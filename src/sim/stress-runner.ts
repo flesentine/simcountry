@@ -390,7 +390,8 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   for (const treaty of worldSecretTreaties) {
     invariant(treaty.clauses.every((clause) => clause.kind === "non_aggression"), `seed ${seed}: secret treaty ${treaty.id} contains non-security clauses`);
     const outsiders = world.countries.filter((country) => !treaty.parties.includes(country.id));
-    const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || event.text.includes(treaty.id));
+    const exactTreatyId = new RegExp(`${treaty.id}(?!\\d)`);
+    const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || exactTreatyId.test(event.text));
     secretTreatyHistoryEvents += matchingEvents.length;
     for (const event of matchingEvents) {
       for (const outsider of outsiders) {

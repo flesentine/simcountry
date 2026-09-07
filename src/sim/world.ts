@@ -484,7 +484,7 @@ export function tickWeek(world: WorldState): WorldState {
   }
 
   enforceStateBounds(world);
-  updateIntelligence(world);
+  for (const message of updateIntelligence(world)) addEvent(world, "world", message);
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;

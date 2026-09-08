@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { chooseTradePartner } from "../ai/policy";
+import { getCredibility } from "./diplomacy";
+import { eventTextForObserver } from "./events";
 import { createInitialWorld, tickWeek } from "./world";
 import {
+  breachNonAggressionForWar,
   getTreatyTradePolicy,
   isNonAggressionActive,
   processTreaties,
@@ -9,6 +12,7 @@ import {
   registerTreaty,
   requestTreatyWithdrawal,
   resetTreatyWeeklyUsage,
+  treatyVisibleToObserver,
 } from "./treaties";
 
 const pairWithRoute = (world: ReturnType<typeof createInitialWorld>) => {
@@ -48,6 +52,69 @@ describe("SimCountry phase 4.0 treaty engine", () => {
     expect(world.treaties).toHaveLength(0);
     expect(world.nextTreatyId).toBe(beforeNextId);
     expect(treasuryTotal(world)).toBeCloseTo(beforeTreasury, 8);
+  });
+
+  test("secret treaties are limited to non-aggression and visible only to their parties", () => {
+    const world = createInitialWorld(1978);
+    const [a, b] = pairWithRoute(world);
+    const outsider = world.countries.find((country) => country.id !== a.id && country.id !== b.id)!;
+
+    expect(registerTreaty(world, {
+      title: "Hidden tariff",
+      parties: [a.id, b.id],
+      visibility: "secret",
+      clauses: [{ kind: "tariff", importerId: a.id, exporterId: b.id, ratePct: 5 }],
+    }).ok).toBe(false);
+
+    const result = registerTreaty(world, {
+      title: "Quiet security protocol",
+      parties: [a.id, b.id],
+      visibility: "secret",
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.treaty.visibility).toBe("secret");
+    expect(isNonAggressionActive(world, a.id, b.id)).toBe(true);
+    expect(treatyVisibleToObserver(result.treaty, a.id)).toBe(true);
+    expect(treatyVisibleToObserver(result.treaty, b.id)).toBe(true);
+    expect(treatyVisibleToObserver(result.treaty, outsider.id)).toBe(false);
+  });
+
+  test("secret treaty breach does not alter outsider credibility or leak breach history", () => {
+    const world = createInitialWorld(1978);
+    const [a, b] = pairWithRoute(world);
+    const outsider = world.countries.find((country) => country.id !== a.id && country.id !== b.id)!;
+    const result = registerTreaty(world, {
+      title: "Quiet security protocol",
+      parties: [a.id, b.id],
+      visibility: "secret",
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const outsiderBefore = getCredibility(world, outsider.id, a.id);
+    const counterpartBefore = getCredibility(world, b.id, a.id);
+    const messages = breachNonAggressionForWar(world, a.id, b.id);
+    expect(messages).toHaveLength(1);
+
+    expect(getCredibility(world, outsider.id, a.id)).toBe(outsiderBefore);
+    expect(getCredibility(world, b.id, a.id)).toBeLessThan(counterpartBefore);
+
+    const message = messages[0]!;
+    expect(typeof message).toBe("object");
+    if (typeof message === "string") return;
+    const event = {
+      id: 999,
+      week: world.week,
+      kind: "diplomacy" as const,
+      ...message,
+    };
+    expect(eventTextForObserver(event, a.id)).toContain("Quiet security protocol");
+    expect(eventTextForObserver(event, b.id)).toContain("Quiet security protocol");
+    expect(eventTextForObserver(event, outsider.id)).toBeNull();
   });
 
   test("future loan treaties escrow principal atomically and release it only on the effective week", () => {
@@ -248,7 +315,7 @@ describe("SimCountry phase 4.0 treaty engine", () => {
       injuredPartyId: b.id,
       reason: "non_aggression_breach",
     }));
-    expect(messages.some((message) => message.includes("recorded as breached"))).toBe(true);
+    expect(messages.some((message) => (typeof message === "string" ? message : message.text).includes("recorded as breached"))).toBe(true);
   });
 
   test("lawful withdrawal observes notice and then removes treaty effects", () => {

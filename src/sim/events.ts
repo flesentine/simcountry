@@ -12,6 +12,7 @@ export function recordWorldEvent(world: WorldState, kind: EventKind, message: Ev
     kind,
     text: narrative.text,
     ...(narrative.audienceCountryIds ? { audienceCountryIds: [...narrative.audienceCountryIds] } : {}),
+    ...(narrative.observerTextByCountry ? { observerTextByCountry: { ...narrative.observerTextByCountry } } : {}),
     ...("publicText" in narrative ? { publicText: narrative.publicText ?? null } : {}),
   };
   world.events.unshift(event);
@@ -19,6 +20,7 @@ export function recordWorldEvent(world: WorldState, kind: EventKind, message: Ev
 }
 
 export function eventTextForObserver(event: WorldEvent, observerId: string) {
+  if (event.observerTextByCountry?.[observerId] !== undefined) return event.observerTextByCountry[observerId]!;
   if (!event.audienceCountryIds) return event.text;
   if (event.audienceCountryIds.includes(observerId)) return event.text;
   return event.publicText ?? null;

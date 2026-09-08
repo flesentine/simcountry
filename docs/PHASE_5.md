@@ -658,3 +658,120 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary is: **truth records the full cause once; each observer reads only the portion it is authorized to know.**
 
+## Phase 5.8 — Secret Agreements
+
+Phase 5.8 adds first-class secret bilateral security agreements on top of the observer-visibility substrate introduced in Phase 5.7.
+
+The initial scope is deliberately narrow: only bilateral non-aggression agreements may be secret. Economic clauses such as loans, tariffs, quotas, preferences, reparations and sanctions remain public until later phases model economic discovery and inference.
+
+### Secrecy is part of the authoritative treaty
+
+Treaty drafts and registered treaties may carry a visibility value:
+
+- public
+- secret
+
+Legacy treaties without visibility are treated as public.
+
+A secret treaty remains fully authoritative. Its non-aggression clause constrains war exactly like a public pact. Secrecy changes who may know that the agreement exists; it does not weaken the treaty engine.
+
+### Governments choose secrecy from their own state
+
+Autonomous secrecy is currently available only for security negotiations.
+
+The proposer chooses public versus secret treatment from information it legitimately knows:
+
+- its own internal-security agenda
+- its own defense posture
+- leader ambition and nationalism
+- its own risk policy
+- its bilateral tension with the proposed counterparty
+- its own diplomatic-engagement agenda
+
+Changing the counterparty's hidden military, readiness, treasury, population, resources or stability cannot change that secrecy decision.
+
+Counteroffers preserve the original secrecy term.
+
+### Three-tier diplomatic narration
+
+Secret diplomacy requires more than public/private history.
+
+For a secret negotiation event:
+
+- God Mode retains the full canonical causal text
+- the government whose cabinet made the decision may see its own private utility/intelligence rationale
+- the other treaty party sees a confidential sanitized diplomatic outcome
+- all uninvolved countries see nothing
+
+The canonical event ledger remains singular. Observer-specific text is derived from the same event rather than creating parallel histories.
+
+### Secret treaty lifecycle
+
+For secret treaties, the following treaty-specific events are party-only:
+
+- negotiation initiation
+- counters, approvals and rejections
+- proposal expiry or wartime suspension
+- entry into force
+- lawful withdrawal notice
+- expiry
+- fulfillment
+- non-aggression breach
+
+Third countries may observe public consequences such as a war or lack of war, but they do not receive the treaty title, treaty ID or lifecycle event itself.
+
+### Reputation and memory
+
+A secret treaty's signing, honor, breach and withdrawal remain in authoritative diplomatic memory.
+
+Credibility consequences propagate only to countries authorized to know the secret agreement. An uninvolved observer therefore does not receive an omniscient reputation shock from a treaty it does not know exists.
+
+Direct relationship effects between the two parties remain authoritative.
+
+### Observer UI and aggregates
+
+A treaty party can see its own secret treaty and negotiation, marked **SECRET**, in Intelligence Mode.
+
+God Mode counts every treaty and negotiation.
+
+In Intelligence Mode, live world-summary counts exclude secret treaties and secret negotiations unless the selected observer is a party. This closes the aggregate-count side channel.
+
+### Scope boundary
+
+Still deferred:
+
+- secret economic agreements
+- intelligence collection aimed at discovering hidden treaties
+- leaks, espionage or accidental disclosure of secret agreements
+- inference from public behavior
+- map fog and territorial uncertainty
+
+Those can build on the same visibility substrate without weakening treaty truth.
+
+### Phase 5.8 verification contract
+
+Regression coverage requires:
+
+- strict treaty input accepts only the supported public/secret visibility values
+- secret treaties containing non-security clauses are rejected
+- a secret non-aggression treaty remains fully authoritative
+- treaty parties can see the secret treaty while an outsider cannot
+- secret treaty breach/honor effects do not change outsider credibility
+- three-tier event narratives expose private cabinet rationale only to the acting government
+- the counterparty receives only the confidential sanitized result
+- outsiders receive no secret diplomatic narrative
+- secrecy policy does not read foreign hidden truth
+- non-security autonomous treaty motives remain public
+
+The 100-seed × 500-year stress population additionally requires:
+
+- secret security negotiations are materially reachable
+- secret non-aggression agreements are materially reachable
+- secret treaties occur across a broad set of worlds
+- every secret treaty contains only non-aggression clauses
+- authoritative history retains secret treaty lifecycle events
+- no outsider can render an event containing a secret treaty title or ID
+- all earlier history-visibility, intelligence, deception, war, diplomacy and treaty-rarity gates remain satisfied
+
+The architectural boundary is: **a secret treaty changes who knows the promise exists, never whether the promise is real.**
+

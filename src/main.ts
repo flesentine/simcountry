@@ -5,7 +5,7 @@ import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { visibleWorldEventViews } from "./sim/events";
 import { negotiationSummaryFor } from "./sim/negotiation";
 import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./sim/intelligence";
-import { treatySummaryFor } from "./sim/treaties";
+import { treatySummaryFor, treatyVisibleToObserver } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
 const app = document.querySelector<HTMLDivElement>("#app") ?? (() => { throw new Error("Missing #app"); })();
@@ -173,7 +173,8 @@ function renderTreaties(selected: Country) {
         const withdrawalNotice = treaty.withdrawalRequestedBy && treaty.withdrawalEffectiveWeek !== null
           ? ` · withdrawal notice by ${countryById(treaty.withdrawalRequestedBy)?.name ?? treaty.withdrawalRequestedBy} · ends ${weekLabel(treaty.withdrawalEffectiveWeek)}`
           : "";
-        return `<div><span>${escapeHtml(treaty.title)}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status}${withdrawalNotice} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
+        const secrecy = treaty.visibility === "secret" ? " · SECRET" : "";
+        return `<div><span>${escapeHtml(treaty.title)}${secrecy}</span><small>${countryById(counterpartId)?.name ?? counterpartId} · ${treaty.status}${withdrawalNotice} · ${timing}</small><small>${clauses}${activeObligations.length ? ` · ${activeObligations.length} payment obligation${activeObligations.length === 1 ? "" : "s"}` : ""}</small></div>`;
       }).join("") : "<p>No treaty commitments yet.</p>"}
     </div>`;
 }
@@ -198,7 +199,8 @@ function renderNegotiations(selected: Country) {
         const displayedDecision = selectedEvaluation?.decision === "counter" && current?.status === "rejected" ? "counter attempt" : selectedEvaluation?.decision;
         const score = selectedEvaluation ? ` · cabinet ${displayedDecision} ${fmt(selectedEvaluation.totalScore, 1)}/${fmt(selectedEvaluation.threshold, 1)}` : "";
         const roundText = current ? `round ${current.round}/${negotiation.maxRounds}` : `${negotiation.proposalIds.length} round${negotiation.proposalIds.length === 1 ? "" : "s"}`;
-        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${escapeHtml(current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed")}</small></div>`;
+        const secrecy = negotiation.visibility === "secret" ? " · SECRET" : "";
+        return `<div><span>${systemLabel(negotiation.motive)} with ${countryById(counterpartId)?.name ?? counterpartId}${secrecy}</span><small>${negotiation.status} · ${roundText} · ${direction}${score}</small><small>${escapeHtml(current?.draft.title ?? negotiation.terminalReason ?? "Negotiation closed")}</small></div>`;
       }).join("") : "<p>No diplomatic talks yet.</p>"}
     </div>`;
 }
@@ -270,8 +272,14 @@ function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
   const selectedDeception = world.intelligence.deceptionByCountry[selected.id];
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
-  const activeTreaties = world.treaties.filter((treaty) => treaty.status === "active").length;
-  const openNegotiations = world.negotiations.filter((negotiation) => negotiation.status === "open").length;
+  const activeTreaties = world.treaties.filter((treaty) =>
+    treaty.status === "active"
+    && (viewMode === "god" || treatyVisibleToObserver(treaty, selected.id))
+  ).length;
+  const openNegotiations = world.negotiations.filter((negotiation) =>
+    negotiation.status === "open"
+    && (viewMode === "god" || negotiation.visibility !== "secret" || negotiation.parties.includes(selected.id))
+  ).length;
   const historyViews = viewMode === "god"
     ? world.events.map((event) => ({ event, text: event.text }))
     : visibleWorldEventViews(world.events, selected.id);

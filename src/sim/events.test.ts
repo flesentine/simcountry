@@ -30,6 +30,25 @@ describe("Phase 5.7 observer-limited event visibility", () => {
     expect(eventTextForObserver(event, "belvar")).toBe("Aurelia attacks Corvin.");
   });
 
+  test("observer-specific text supports secret party tiers without outsider disclosure", () => {
+    const event: WorldEvent = {
+      id: 4,
+      week: 26,
+      kind: "diplomacy",
+      text: "God sees recipient utility 61/58 for a secret accord.",
+      audienceCountryIds: ["aurelia", "belvar"],
+      observerTextByCountry: {
+        aurelia: "Aurelia sees its own utility 61/58.",
+        belvar: "Belvar sees only that the confidential accord was accepted.",
+      },
+      publicText: null,
+    };
+
+    expect(eventTextForObserver(event, "aurelia")).toContain("utility 61/58");
+    expect(eventTextForObserver(event, "belvar")).toBe("Belvar sees only that the confidential accord was accepted.");
+    expect(eventTextForObserver(event, "corvin")).toBeNull();
+  });
+
   test("restricted events fail closed when no public text is supplied", () => {
     const event: WorldEvent = {
       id: 3,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Negotiation, Proposal, TreatyDraft } from "../model/types";
-import { assessDebtorRepaymentFromBelief, assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations } from "./negotiation";
+import { assessDebtorRepaymentFromBelief, assessPotentialCreditorFromBelief, bestTradeOpportunityFromBelief, diplomaticBandwidth, evaluateTreatyProposal, processNegotiations, proposedTreatyVisibility } from "./negotiation";
 import { getCountryIntelligence } from "./intelligence";
 import { parseTreatyDraftInput, validateTreatyDraftInput } from "./treaty-input";
 import { validateTreatyDraft } from "./treaties";
@@ -80,6 +80,59 @@ describe("Phase 4.1 negotiation and government authorization", () => {
       clauses: [{ kind: "non_aggression" }],
     });
     expect(unsafeInteger.ok).toBe(false);
+  });
+
+  test("strict treaty input preserves supported secret visibility", () => {
+    const world = createInitialWorld(1978);
+    const route = world.geography.routes[0]!;
+    const parsed = parseTreatyDraftInput({
+      title: "Quiet pact",
+      parties: [route.a, route.b],
+      visibility: "secret",
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.draft.visibility).toBe("secret");
+    expect(validateTreatyDraft(world, parsed.draft)).toEqual([]);
+
+    expect(parseTreatyDraftInput({
+      title: "Bad visibility",
+      parties: [route.a, route.b],
+      visibility: "classified",
+      clauses: [{ kind: "non_aggression" }],
+    }).ok).toBe(false);
+  });
+
+  test("security secrecy choice follows proposer state rather than foreign hidden truth", () => {
+    const world = createInitialWorld(1978);
+    const proposer = world.countries[0]!;
+    const recipient = world.countries[1]!;
+
+    proposer.government.agenda.internalSecurity = 100;
+    proposer.government.agenda.defensePosture = 100;
+    proposer.government.agenda.diplomaticEngagement = 0;
+    proposer.government.leader.traits.ambition = 100;
+    proposer.government.leader.traits.nationalism = 100;
+    proposer.policy.risk = 100;
+    proposer.relations[recipient.id]!.tension = 100;
+
+    const before = proposedTreatyVisibility(proposer, recipient, "security");
+    expect(before).toBe("secret");
+
+    recipient.military = 99_999;
+    recipient.readiness = 100;
+    recipient.treasury = -99_999;
+    recipient.population = 9_999;
+    recipient.stability = 0;
+    for (const resource of ["food", "energy", "metals", "goods"] as const) {
+      recipient.resources[resource] = 99_999;
+      recipient.needs[resource] = 0.01;
+    }
+
+    expect(proposedTreatyVisibility(proposer, recipient, "security")).toBe(before);
+    expect(proposedTreatyVisibility(proposer, recipient, "trade_access")).toBe("public");
+    expect(proposedTreatyVisibility(proposer, recipient, "financing")).toBe("public");
   });
 
   test("autonomous trade talks require perceived resource complementarity", () => {

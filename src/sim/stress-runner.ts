@@ -1,4 +1,5 @@
 import { getCredibility, memorySalience, treatyWithdrawalDecision } from "./diplomacy";
+import { eventTextForObserver } from "./events";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { getSellerExportableSurplus } from "./trade";
@@ -74,6 +75,10 @@ let reconnaissanceEvents = 0;
 let restrictedHistoryEvents = 0;
 let sanitizedHistoryEvents = 0;
 let privateProvenanceEvents = 0;
+let secretTreaties = 0;
+let secretNegotiations = 0;
+let worldsWithSecretTreaties = 0;
+let secretTreatyHistoryEvents = 0;
 let concealmentPostures = 0;
 let exaggerationPostures = 0;
 let currentDeceptionAffectedProfiles = 0;
@@ -377,6 +382,23 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
   ).length;
   if (world.negotiations.length > 0) worldsWithNegotiations++;
   if (world.negotiations.some((negotiation) => negotiation.status === "accepted")) worldsWithAcceptedNegotiations++;
+  const worldSecretNegotiations = world.negotiations.filter((negotiation) => negotiation.visibility === "secret");
+  const worldSecretTreaties = world.treaties.filter((treaty) => treaty.visibility === "secret");
+  secretNegotiations += worldSecretNegotiations.length;
+  secretTreaties += worldSecretTreaties.length;
+  if (worldSecretTreaties.length > 0) worldsWithSecretTreaties++;
+  for (const treaty of worldSecretTreaties) {
+    invariant(treaty.clauses.every((clause) => clause.kind === "non_aggression"), `seed ${seed}: secret treaty ${treaty.id} contains non-security clauses`);
+    const outsiders = world.countries.filter((country) => !treaty.parties.includes(country.id));
+    const exactTreatyId = new RegExp(`${treaty.id}(?!\\d)`);
+    const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || exactTreatyId.test(event.text));
+    secretTreatyHistoryEvents += matchingEvents.length;
+    for (const event of matchingEvents) {
+      for (const outsider of outsiders) {
+        invariant(eventTextForObserver(event, outsider.id) === null, `seed ${seed}: secret treaty ${treaty.id} leaked to ${outsider.id}`);
+      }
+    }
+  }
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);
   maxProposalsPerWorld = Math.max(maxProposalsPerWorld, world.proposals.length);
   maxTreatiesPerWorld = Math.max(maxTreatiesPerWorld, world.treaties.length);
@@ -622,6 +644,10 @@ const summary = {
   restrictedHistoryEvents,
   sanitizedHistoryEvents,
   privateProvenanceEvents,
+  secretTreaties,
+  secretNegotiations,
+  worldsWithSecretTreaties,
+  secretTreatyHistoryEvents,
   concealmentPostures,
   exaggerationPostures,
   currentDeceptionAffectedProfiles,
@@ -687,6 +713,10 @@ invariant(reconnaissanceEvents > SEEDS.length, "active reconnaissance retasking 
 invariant(restrictedHistoryEvents > SEEDS.length, "observer-limited history never became materially active");
 invariant(sanitizedHistoryEvents > SEEDS.length, "restricted history stopped producing sanitized observer narratives");
 invariant(privateProvenanceEvents > SEEDS.length, "authoritative history stopped retaining private causal provenance");
+invariant(secretNegotiations > SEEDS.length, "secret security negotiations never became materially reachable");
+invariant(secretTreaties > SEEDS.length, "secret non-aggression agreements never became materially reachable");
+invariant(worldsWithSecretTreaties >= SEEDS.length * 0.5, `only ${worldsWithSecretTreaties} stress worlds produced secret agreements`);
+invariant(secretTreatyHistoryEvents > SEEDS.length, "secret treaty lifecycle never reached authoritative history");
 invariant(concealmentPostures > 0, "military concealment never appeared in final stress states");
 invariant(exaggerationPostures > 0, "military exaggeration never appeared in final stress states");
 invariant(currentDeceptionAffectedProfiles > SEEDS.length, "military deception stopped affecting current intelligence collection");

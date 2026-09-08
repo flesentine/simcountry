@@ -4,7 +4,7 @@ import { RESOURCE_KEYS, type Country, type WorldEvent, type WorldState } from ".
 import { credibilitySummaryFor, getCredibility } from "./sim/diplomacy";
 import { visibleWorldEventViews } from "./sim/events";
 import { negotiationSummaryFor } from "./sim/negotiation";
-import { getCountryIntelligence, intelligenceProfileAge, intelligenceProfileConfidence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./sim/intelligence";
+import { effectiveSecretTreatyConfidence, getCountryIntelligence, getSecretTreatyIntelligence, intelligenceProfileAge, intelligenceProfileConfidence, RESOURCE_EXPORT_INTELLIGENCE_METRIC } from "./sim/intelligence";
 import { treatySummaryFor, treatyVisibleToObserver } from "./sim/treaties";
 import { createInitialWorld, getActiveTruce, tickWeek } from "./sim/world";
 
@@ -229,6 +229,20 @@ function renderDiplomaticMemory(selected: Country) {
 
 function renderForeignIntelligence(selected: Country) {
   const reconAssignment = world.intelligence.reconByObserver[selected.id] ?? null;
+  const discoveredTreaties = getSecretTreatyIntelligence(world, selected.id)
+    .slice()
+    .sort((a, b) => b.lastConfirmedWeek - a.lastConfirmedWeek || a.treatyId.localeCompare(b.treatyId));
+  const displayedSecretTreaties = discoveredTreaties.slice(0, 12);
+  const secretTreatyProfiles = displayedSecretTreaties.map((intel) => {
+    const parties = intel.parties.map((countryId) => countryById(countryId)?.name ?? countryId).join(" ↔ ");
+    const age = Math.max(0, world.week - intel.lastConfirmedWeek);
+    const confidence = effectiveSecretTreatyConfidence(intel, world.week);
+    return `<div>
+      <span>${escapeHtml(intel.title)} · DISCOVERED SECRET</span>
+      <small>${parties} · last-known status ${intel.status} · first seen ${weekLabel(intel.discoveredWeek)}</small>
+      <small>confidence ${fmt(confidence)}% · confirmed ${age === 0 ? "this week" : `${age}w ago`} · source recon ${countryById(intel.sourceSubjectId)?.name ?? intel.sourceSubjectId}</small>
+    </div>`;
+  }).join("");
   const profiles = world.countries
     .filter((country) => country.id !== selected.id)
     .map((subject) => {
@@ -263,6 +277,12 @@ function renderForeignIntelligence(selected: Country) {
   return `
     <h3>Foreign intelligence</h3>
     <p class="muted">${reconSummary}</p>
+    <h3>Discovered secret agreements</h3>
+    <p class="muted">${discoveredTreaties.length ? `${discoveredTreaties.length} known · showing ${displayedSecretTreaties.length} most recently confirmed` : "No foreign secret agreements discovered."}</p>
+    <div class="relations intelligence-list">
+      ${secretTreatyProfiles}
+    </div>
+    <h3>Country intelligence profiles</h3>
     <div class="relations intelligence-list">
       ${profiles || "<p>No foreign intelligence available.</p>"}
     </div>`;
@@ -272,10 +292,11 @@ function render() {
   const selected = world.countries.find((country) => country.id === selectedId) ?? world.countries[0]!;
   const selectedDeception = world.intelligence.deceptionByCountry[selected.id];
   const avgLegitimacy = world.countries.reduce((sum, country) => sum + country.government.legitimacy, 0) / world.countries.length;
-  const activeTreaties = world.treaties.filter((treaty) =>
-    treaty.status === "active"
-    && (viewMode === "god" || treatyVisibleToObserver(treaty, selected.id))
-  ).length;
+  const discoveredSecretTreaties = viewMode === "intelligence" ? getSecretTreatyIntelligence(world, selected.id) : [];
+  const activeTreaties = viewMode === "god"
+    ? world.treaties.filter((treaty) => treaty.status === "active").length
+    : world.treaties.filter((treaty) => treaty.status === "active" && treatyVisibleToObserver(treaty, selected.id)).length
+      + discoveredSecretTreaties.filter((intel) => intel.status === "active").length;
   const openNegotiations = world.negotiations.filter((negotiation) =>
     negotiation.status === "open"
     && (viewMode === "god" || negotiation.visibility !== "secret" || negotiation.parties.includes(selected.id))

@@ -775,3 +775,156 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary is: **a secret treaty changes who knows the promise exists, never whether the promise is real.**
 
+## Phase 5.9 — Secret Agreement Discovery
+
+Phase 5.9 lets active reconnaissance sometimes uncover a secret bilateral security agreement without turning Intelligence Mode into an omniscient treaty viewer.
+
+The new state is observer-owned treaty intelligence, not a visibility override on the authoritative treaty.
+
+### Observer treaty-intelligence snapshots
+
+Each observer may retain discovered secret-treaty intelligence containing:
+
+- treaty ID
+- title
+- parties
+- last-known treaty status
+- discovery week
+- last confirmation week
+- collection confidence
+- the foreign country whose active-recon collection exposed the agreement
+
+Treaty parties do not store their own agreements as foreign discoveries because governments already know their own commitments directly.
+
+### Discovery happens after target selection
+
+Reconnaissance target selection remains exactly the Phase 5.5 belief-only process.
+
+A government first chooses its recon target from:
+
+- stored intelligence age
+- effective confidence
+- bilateral tension
+- known border and route relationships
+
+Only after that target has been selected does the recon collection layer inspect authoritative secret treaties involving the target.
+
+Secret treaty truth therefore cannot influence which country gets targeted for collection.
+
+### Deterministic discovery
+
+Secret-agreement detection uses a deterministic intelligence-specific RNG keyed by:
+
+- world seed
+- observer
+- treaty ID
+- observation week
+
+It does not consume the simulation's normal weekly RNG stream.
+
+Discovery probability depends on legitimate collection quality such as:
+
+- Foreign Ministry competence
+- diplomatic-policy investment
+- direct border
+- direct transport route
+- treaty age
+
+Changing the recon target's hidden military, readiness, fiscal, demographic or resource truth cannot change the discovery probability.
+
+### Discovery and confirmation
+
+An undiscovered secret treaty is eligible for discovery only while it is pending or active.
+
+Once an observer has discovered a treaty, later recon of either party may confirm its current status, including a terminal status such as expiry or violation.
+
+A failed later collection does not erase the old belief.
+
+This creates genuine stale treaty intelligence.
+
+### No live treaty pointer
+
+The observer UI reads the stored treaty-intelligence snapshot only.
+
+If authoritative truth changes after discovery:
+
+- the observer's stored status does not update automatically
+- confirmation age increases
+- effective confidence decays
+- the observer may continue to count a treaty as active after it has actually ended, or miss an activation that occurred after the last confirmation
+
+Only a later successful recon confirmation updates that snapshot.
+
+### Private discovery history
+
+When a treaty is newly discovered:
+
+- God Mode records the full intelligence discovery event
+- the discovering observer sees the event in Observer History
+- treaty parties do not automatically learn that the observer discovered their pact
+- all other countries see nothing
+
+Existing secret treaty lifecycle events are not retroactively unlocked.
+
+Future treaty lifecycle events also remain party-only; an outside observer must reconfirm the treaty rather than receiving an insider event feed.
+
+### Intelligence Mode UI
+
+The foreign-intelligence section now includes **Discovered secret agreements**.
+
+Each discovered agreement displays:
+
+- title
+- parties
+- last-known status
+- decaying confidence
+- confirmation age
+- recon source
+
+The top-level treaty count in Intelligence Mode combines:
+
+- currently public active treaties
+- the selected country's own active secret treaties
+- discovered secret treaties whose stored last-known status is active
+
+It does not consult the live status of a discovered foreign secret treaty.
+
+### Scope boundary
+
+Phase 5.9 discovers signed secret security agreements only.
+
+Still deferred:
+
+- discovery of secret negotiations before signature
+- secret economic agreements
+- deliberate counterintelligence aimed at treaty concealment
+- leaks and accidental disclosure
+- policy decisions that reason about discovered third-party treaty networks
+- map fog and territorial uncertainty
+
+### Phase 5.9 verification contract
+
+Regression coverage requires:
+
+- discovery probability is invariant to changes in target hidden military/economic truth
+- active recon can discover a secret treaty involving its target
+- discovered intelligence records a snapshot rather than a live treaty reference
+- authoritative treaty status changes do not update stored observer status
+- effective discovery confidence decays with confirmation age
+- later successful recon can reconfirm a changed terminal status
+- legacy intelligence state repairs the new observer treaty-intelligence container without inventing discoveries
+
+The 100-seed × 500-year stress population additionally requires:
+
+- secret-treaty discoveries are materially reachable
+- discoveries occur across many observer-worlds
+- every discovered record points to a real secret authoritative treaty
+- no observer stores its own secret treaty as foreign intelligence
+- discovered treaty timing and confidence remain valid
+- private discovery-history events are visible only to the discovering observer
+- stale discovered treaty intelligence exists
+- at least one stored treaty status diverges from live truth, proving the observer model is not reading authoritative status directly
+- all earlier intelligence, deception, secret-agreement, war, diplomacy and treaty-rarity gates remain satisfied
+
+The architectural boundary is: **recon may discover a hidden promise, but discovery creates a fallible belief about that promise rather than a permanent window into treaty truth.**
+

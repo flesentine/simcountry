@@ -2,16 +2,21 @@ import { describe, expect, test } from "vitest";
 import type { WorldState } from "../model/types";
 import {
   collectCountryIntelligence,
+  collectSecretTreatyIntelligence,
   effectiveIntelConfidence,
+  effectiveSecretTreatyConfidence,
   ensureIntelligence,
   getCountryIntelligence,
+  getSecretTreatyIntelligence,
   intelligenceProfileAge,
   militaryDeceptionObservationBias,
   militaryDeceptionPostureFor,
+  secretTreatyDiscoveryChance,
   selectReconTargetFromBelief,
   updateIntelligence,
 } from "./intelligence";
 import { getSellerExportableSurplus } from "./trade";
+import { registerTreaty } from "./treaties";
 import { createInitialWorld, tickWeek } from "./world";
 
 function truthOnly(world: WorldState) {
@@ -142,6 +147,136 @@ describe("Phase 5.0 subjective intelligence", () => {
 
     expect(world.intelligence.reconByObserver).toBeDefined();
     expect(world.intelligence.reconByObserver[observer.id]).toBeNull();
+    expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
+  });
+
+  test("secret treaty truth cannot influence reconnaissance target selection", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 39;
+    const foreign = world.countries.filter((country) => country.id !== observer.id);
+    const target = foreign[2]!;
+
+    for (const subject of foreign) {
+      const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+      for (const estimate of Object.values(profile.estimates)) {
+        estimate.confidence = subject.id === target.id ? 20 : 92;
+        estimate.observedWeek = subject.id === target.id ? 0 : 38;
+      }
+      observer.relations[subject.id]!.tension = subject.id === target.id ? 100 : 0;
+    }
+
+    const before = selectReconTargetFromBelief(world, observer);
+    expect(before?.subjectId).toBe(target.id);
+
+    for (let index = 0; index < foreign.length - 1; index++) {
+      const a = foreign[index]!;
+      const b = foreign[index + 1]!;
+      const result = registerTreaty(world, {
+        title: `Hidden pact ${index}`,
+        parties: [a.id, b.id],
+        visibility: "secret",
+        clauses: [{ kind: "non_aggression" }],
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    expect(selectReconTargetFromBelief(world, observer)).toEqual(before);
+  });
+
+  test("secret treaty discovery chance does not inspect target hidden military or economic truth", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const partner = world.countries[2]!;
+    const result = registerTreaty(world, {
+      title: "Hidden security channel",
+      parties: [subject.id, partner.id],
+      visibility: "secret",
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    observer.government.ministries.foreign.competence = 88;
+    observer.policy.diplomacy = 82;
+    const before = secretTreatyDiscoveryChance(world, observer, subject, result.treaty);
+
+    subject.population = 10_000;
+    subject.treasury = -100_000;
+    subject.military = 50_000;
+    subject.readiness = 100;
+    subject.stability = 0;
+    for (const resource of ["food", "energy", "metals", "goods"] as const) {
+      subject.resources[resource] = 100_000;
+      subject.needs[resource] = 0.1;
+    }
+
+    expect(secretTreatyDiscoveryChance(world, observer, subject, result.treaty)).toBe(before);
+  });
+
+  test("active recon discovery stores a staleable treaty snapshot instead of a live treaty pointer", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const partner = world.countries[2]!;
+    observer.government.ministries.foreign.competence = 100;
+    observer.policy.diplomacy = 100;
+
+    const result = registerTreaty(world, {
+      title: "Hidden security channel",
+      parties: [subject.id, partner.id],
+      visibility: "secret",
+      clauses: [{ kind: "non_aggression" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    let discovered = false;
+    for (let week = 13; week <= 13 * 80 && !discovered; week += 13) {
+      world.week = week;
+      discovered = collectSecretTreatyIntelligence(world, observer, subject, week).length > 0;
+    }
+    expect(discovered).toBe(true);
+
+    const initial = getSecretTreatyIntelligence(world, observer.id).find((intel) => intel.treatyId === result.treaty.id)!;
+    expect(initial).toBeDefined();
+    expect(initial.status).toBe("active");
+    expect(initial.sourceSubjectId).toBe(subject.id);
+    expect(initial.discoveredWeek).toBe(initial.lastConfirmedWeek);
+
+    result.treaty.status = "expired";
+    result.treaty.terminalReason = "expiry";
+    world.week = initial.lastConfirmedWeek + 52;
+
+    const stale = getSecretTreatyIntelligence(world, observer.id).find((intel) => intel.treatyId === result.treaty.id)!;
+    expect(stale.status).toBe("active");
+    expect(stale.lastConfirmedWeek).toBe(initial.lastConfirmedWeek);
+    expect(effectiveSecretTreatyConfidence(stale, world.week)).toBeLessThan(stale.confidence);
+
+    let reconfirmed = false;
+    const reconfirmStart = world.week + 13;
+    const reconfirmDeadline = world.week + 13 * 80;
+    for (let week = reconfirmStart; week <= reconfirmDeadline && !reconfirmed; week += 13) {
+      world.week = week;
+      collectSecretTreatyIntelligence(world, observer, subject, week);
+      const refreshed = getSecretTreatyIntelligence(world, observer.id).find((intel) => intel.treatyId === result.treaty.id)!;
+      reconfirmed = refreshed.lastConfirmedWeek === week && refreshed.status === "expired";
+    }
+    expect(reconfirmed).toBe(true);
+  });
+
+  test("legacy intelligence repairs secret-treaty knowledge state without inventing discoveries", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const before = structuredClone(getCountryIntelligence(world, observer.id, subject.id));
+    delete (world.intelligence as Partial<typeof world.intelligence>).secretTreatiesByObserver;
+
+    ensureIntelligence(world);
+
+    expect(world.intelligence.secretTreatiesByObserver).toBeDefined();
+    expect(world.intelligence.secretTreatiesByObserver[observer.id]).toEqual({});
     expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 

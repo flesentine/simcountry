@@ -96,7 +96,7 @@ export function createInitialWorld(seed = 1978): WorldState {
     proposals: [],
     diplomaticMemories: [],
     diplomaticCredibility: {},
-    intelligence: { byObserver: {}, reconByObserver: {}, deceptionByCountry: {} },
+    intelligence: { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {} },
     events: [],
   };
   ensureDiplomaticState(world);
@@ -497,11 +497,17 @@ export function tickWeek(world: WorldState): WorldState {
   }
 
   enforceStateBounds(world);
-  for (const message of updateIntelligence(world)) addEvent(world, "world", {
-    text: message,
-    audienceCountryIds: [],
-    publicText: "Quarterly intelligence services retask collection priorities.",
-  });
+  for (const message of updateIntelligence(world)) {
+    if (typeof message === "string") {
+      addEvent(world, "world", {
+        text: message,
+        audienceCountryIds: [],
+        publicText: "Quarterly intelligence services retask collection priorities.",
+      });
+    } else {
+      addEvent(world, "world", message);
+    }
+  }
 
   if (world.week % 52 === 0) {
     const richest = [...world.countries].sort((a, b) => b.treasury - a.treasury)[0]!;

@@ -143,10 +143,22 @@ export interface MilitaryDeceptionPosture {
   updatedWeek: number;
 }
 
+export interface SecretTreatyIntelligence {
+  treatyId: string;
+  title: string;
+  parties: [string, string];
+  status: TreatyStatus;
+  discoveredWeek: number;
+  lastConfirmedWeek: number;
+  confidence: number;
+  sourceSubjectId: string;
+}
+
 export interface IntelligenceState {
   byObserver: Record<string, Record<string, CountryIntelligence>>;
   reconByObserver: Record<string, ReconAssignment | null>;
   deceptionByCountry: Record<string, MilitaryDeceptionPosture>;
+  secretTreatiesByObserver: Record<string, Record<string, SecretTreatyIntelligence>>;
 }
 
 export interface WorldCell {

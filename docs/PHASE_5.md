@@ -928,3 +928,111 @@ The 100-seed × 500-year stress population additionally requires:
 
 The architectural boundary is: **recon may discover a hidden promise, but discovery creates a fallible belief about that promise rather than a permanent window into treaty truth.**
 
+
+
+## Phase 5.10 — Secret Negotiation Discovery
+
+Phase 5.10 extends the observer-owned hidden-diplomacy model from signed secret agreements to confidential negotiations that have not yet produced a treaty.
+
+The authoritative negotiation remains the source of truth. Discovery creates only a staleable observer snapshot.
+
+### Pre-signature discovery
+
+Active reconnaissance may detect an open secret security negotiation involving its selected target.
+
+Recon target selection is unchanged and still happens before hidden negotiation truth is inspected. A secret negotiation therefore cannot cause itself to be targeted.
+
+New discovery is limited to negotiations that are still open. Once an observer already knows talks exist, later reconnaissance of either party may reconfirm a terminal status such as accepted, rejected, expired or cancelled.
+
+### Observer negotiation-intelligence snapshots
+
+Each observer may retain:
+
+- negotiation ID
+- proposal title
+- parties
+- motive
+- last-known negotiation status
+- discovery week
+- last confirmation week
+- collection confidence
+- recon source country
+
+Treaty parties do not store their own talks as foreign discoveries.
+
+The snapshot is not a live pointer. If the authoritative negotiation later closes, the observer continues to hold its old status until a later successful reconfirmation.
+
+### Deterministic collection
+
+Secret-talk detection uses an intelligence-only deterministic RNG keyed by world seed, observer, negotiation ID and observation week.
+
+Detection quality depends on the observer's collection capability and legitimate access factors already used by secret-agreement discovery. It does not inspect the target's hidden military, readiness, fiscal, demographic or resource truth.
+
+### Discovery history
+
+A newly detected negotiation creates one restricted world event:
+
+- God Mode retains the canonical discovery text
+- the discovering observer may read it
+- the negotiating parties are not automatically told that the outsider discovered the talks
+- every other country sees nothing
+
+Discovery does not unlock the negotiation's private diplomatic event stream.
+
+### Intelligence Mode UI
+
+The foreign-intelligence panel now includes **Discovered secret talks**.
+
+Each row shows:
+
+- proposal title
+- parties
+- motive
+- last-known status
+- first-seen week
+- decaying confidence
+- confirmation age
+- source recon target
+
+The Intelligence Mode open-negotiation aggregate includes discovered secret negotiations only when the observer's stored last-known status is open. It never reads live hidden negotiation status for that discovered record.
+
+### Scope boundary
+
+Phase 5.10 discovers confidential security negotiations only.
+
+Still deferred:
+
+- secret economic agreements
+- deliberate treaty/negotiation counterintelligence
+- leaks and accidental disclosure
+- policy decisions that reason about discovered third-party treaty networks
+- inference from public behavior
+- map fog and territorial uncertainty
+
+### Phase 5.10 verification contract
+
+Regression coverage requires:
+
+- changing target hidden military/economic truth cannot change secret-negotiation discovery probability
+- active recon can discover an open secret negotiation involving its target
+- discovery stores a staleable snapshot rather than a live negotiation reference
+- authoritative negotiation status changes do not live-update observer belief
+- confidence decays with confirmation age
+- later recon can reconfirm a changed terminal status
+- discovery history is private to the discovering observer
+- legacy intelligence state repairs the new container without inventing discoveries
+
+The 100-seed × 500-year stress population additionally requires:
+
+- secret-negotiation discovery is materially reachable
+- discoveries occur across many observer-worlds
+- every discovery points to a real secret authoritative negotiation
+- no observer stores its own secret negotiation as foreign intelligence
+- stored titles remain supported by authoritative negotiation proposals
+- private discovery events remain observer-only
+- stale secret-negotiation intelligence exists
+- at least one stored negotiation status diverges from live truth
+- shared negotiation/treaty titles do not weaken secret treaty lifecycle privacy
+- all earlier Phase 5, diplomacy, treaty-rarity and world-stability gates remain satisfied
+
+The architectural boundary is: **recon may learn that secret talks exist, but it receives a fallible snapshot of diplomacy rather than an insider seat at the table.**

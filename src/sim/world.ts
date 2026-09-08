@@ -96,7 +96,7 @@ export function createInitialWorld(seed = 1978): WorldState {
     proposals: [],
     diplomaticMemories: [],
     diplomaticCredibility: {},
-    intelligence: { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {} },
+    intelligence: { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {}, secretNegotiationsByObserver: {} },
     events: [],
   };
   ensureDiplomaticState(world);

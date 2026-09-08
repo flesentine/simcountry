@@ -154,11 +154,24 @@ export interface SecretTreatyIntelligence {
   sourceSubjectId: string;
 }
 
+export interface SecretNegotiationIntelligence {
+  negotiationId: string;
+  title: string;
+  parties: [string, string];
+  motive: NegotiationMotive;
+  status: NegotiationStatus;
+  discoveredWeek: number;
+  lastConfirmedWeek: number;
+  confidence: number;
+  sourceSubjectId: string;
+}
+
 export interface IntelligenceState {
   byObserver: Record<string, Record<string, CountryIntelligence>>;
   reconByObserver: Record<string, ReconAssignment | null>;
   deceptionByCountry: Record<string, MilitaryDeceptionPosture>;
   secretTreatiesByObserver: Record<string, Record<string, SecretTreatyIntelligence>>;
+  secretNegotiationsByObserver: Record<string, Record<string, SecretNegotiationIntelligence>>;
 }
 
 export interface WorldCell {

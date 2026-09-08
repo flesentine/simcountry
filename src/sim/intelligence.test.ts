@@ -1,16 +1,20 @@
 import { describe, expect, test } from "vitest";
-import type { WorldState } from "../model/types";
+import type { Negotiation, Proposal, WorldState } from "../model/types";
 import {
   collectCountryIntelligence,
+  collectSecretNegotiationIntelligence,
   collectSecretTreatyIntelligence,
   effectiveIntelConfidence,
+  effectiveSecretNegotiationConfidence,
   effectiveSecretTreatyConfidence,
   ensureIntelligence,
   getCountryIntelligence,
+  getSecretNegotiationIntelligence,
   getSecretTreatyIntelligence,
   intelligenceProfileAge,
   militaryDeceptionObservationBias,
   militaryDeceptionPostureFor,
+  secretNegotiationDiscoveryChance,
   secretTreatyDiscoveryChance,
   selectReconTargetFromBelief,
   updateIntelligence,
@@ -23,6 +27,57 @@ function truthOnly(world: WorldState) {
   const copy = structuredClone(world) as Partial<WorldState>;
   delete copy.intelligence;
   return copy;
+}
+
+function addSecretNegotiationFixture(world: WorldState, subjectId: string, partnerId: string) {
+  const sequence = world.negotiations.length + 1;
+  const negotiationId = `negotiation-test-${sequence}`;
+  const proposalId = `proposal-test-${sequence}`;
+  const subject = world.countries.find((country) => country.id === subjectId)!;
+  const partner = world.countries.find((country) => country.id === partnerId)!;
+  const title = `${subject.name}–${partner.name} Confidential Security Protocol`;
+  const proposal: Proposal = {
+    id: proposalId,
+    negotiationId,
+    round: 1,
+    proposerId: subjectId,
+    recipientId: partnerId,
+    motive: "security",
+    createdWeek: world.week,
+    expiresWeek: world.week + 12,
+    responseToProposalId: null,
+    draft: {
+      title,
+      parties: [subjectId, partnerId],
+      visibility: "secret",
+      effectiveWeek: world.week + 8,
+      expiryWeek: world.week + 208,
+      withdrawalNoticeWeeks: 26,
+      clauses: [{ kind: "non_aggression" }],
+    },
+    status: "pending",
+    decisionReason: null,
+    evaluations: [],
+  };
+  const negotiation: Negotiation = {
+    id: negotiationId,
+    parties: [subjectId, partnerId],
+    visibility: "secret",
+    initiatorId: subjectId,
+    motive: "security",
+    status: "open",
+    startedWeek: world.week,
+    lastActionWeek: world.week,
+    cooldownUntilWeek: 0,
+    currentProposalId: proposalId,
+    proposalIds: [proposalId],
+    maxRounds: 3,
+    outcomeTreatyId: null,
+    terminalReason: null,
+  };
+  world.proposals.push(proposal);
+  world.negotiations.push(negotiation);
+  return { negotiation, proposal };
 }
 
 describe("Phase 5.0 subjective intelligence", () => {
@@ -277,6 +332,147 @@ describe("Phase 5.0 subjective intelligence", () => {
 
     expect(world.intelligence.secretTreatiesByObserver).toBeDefined();
     expect(world.intelligence.secretTreatiesByObserver[observer.id]).toEqual({});
+    expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
+  });
+
+  test("secret negotiation truth cannot influence reconnaissance target selection", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 39;
+    const foreign = world.countries.filter((country) => country.id !== observer.id);
+    const target = foreign[2]!;
+
+    for (const subject of foreign) {
+      const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+      for (const estimate of Object.values(profile.estimates)) {
+        estimate.confidence = subject.id === target.id ? 20 : 92;
+        estimate.observedWeek = subject.id === target.id ? 0 : 38;
+      }
+      observer.relations[subject.id]!.tension = subject.id === target.id ? 100 : 0;
+    }
+
+    const before = selectReconTargetFromBelief(world, observer);
+    expect(before?.subjectId).toBe(target.id);
+
+    for (let index = 0; index < foreign.length - 1; index++) {
+      addSecretNegotiationFixture(world, foreign[index]!.id, foreign[index + 1]!.id);
+    }
+
+    expect(selectReconTargetFromBelief(world, observer)).toEqual(before);
+  });
+
+  test("secret negotiation discovery chance does not inspect target hidden military or economic truth", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const partner = world.countries[2]!;
+    const { negotiation } = addSecretNegotiationFixture(world, subject.id, partner.id);
+    observer.government.ministries.foreign.competence = 88;
+    observer.policy.diplomacy = 82;
+
+    const before = secretNegotiationDiscoveryChance(world, observer, subject, negotiation);
+
+    subject.population = 10_000;
+    subject.treasury = -100_000;
+    subject.military = 50_000;
+    subject.readiness = 100;
+    subject.stability = 0;
+    for (const resource of ["food", "energy", "metals", "goods"] as const) {
+      subject.resources[resource] = 100_000;
+      subject.needs[resource] = 0.1;
+    }
+
+    expect(secretNegotiationDiscoveryChance(world, observer, subject, negotiation)).toBe(before);
+  });
+
+  test("active recon stores secret-talk snapshots that can become stale and later be reconfirmed", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const partner = world.countries[2]!;
+    observer.government.ministries.foreign.competence = 100;
+    observer.policy.diplomacy = 100;
+    const { negotiation } = addSecretNegotiationFixture(world, subject.id, partner.id);
+
+    let discovered = false;
+    for (let week = 13; week <= 13 * 80 && !discovered; week += 13) {
+      world.week = week;
+      discovered = collectSecretNegotiationIntelligence(world, observer, subject, week).length > 0;
+    }
+    expect(discovered).toBe(true);
+
+    const initial = getSecretNegotiationIntelligence(world, observer.id)
+      .find((intel) => intel.negotiationId === negotiation.id)!;
+    expect(initial).toBeDefined();
+    expect(initial.status).toBe("open");
+    expect(initial.sourceSubjectId).toBe(subject.id);
+    expect(initial.discoveredWeek).toBe(initial.lastConfirmedWeek);
+
+    negotiation.status = "rejected";
+    negotiation.terminalReason = "cabinet_rejected";
+    world.week = initial.lastConfirmedWeek + 39;
+
+    const stale = getSecretNegotiationIntelligence(world, observer.id)
+      .find((intel) => intel.negotiationId === negotiation.id)!;
+    expect(stale.status).toBe("open");
+    expect(stale.lastConfirmedWeek).toBe(initial.lastConfirmedWeek);
+    expect(effectiveSecretNegotiationConfidence(stale, world.week)).toBeLessThan(stale.confidence);
+
+    let reconfirmed = false;
+    const reconfirmDeadline = world.week + 13 * 80;
+    for (let week = world.week + 13; week <= reconfirmDeadline && !reconfirmed; week += 13) {
+      world.week = week;
+      collectSecretNegotiationIntelligence(world, observer, subject, week);
+      const refreshed = getSecretNegotiationIntelligence(world, observer.id)
+        .find((intel) => intel.negotiationId === negotiation.id)!;
+      reconfirmed = refreshed.lastConfirmedWeek === week && refreshed.status === "rejected";
+    }
+    expect(reconfirmed).toBe(true);
+  });
+
+  test("quarterly recon emits secret-talk discoveries only to the discovering observer", () => {
+    let discovery: Exclude<ReturnType<typeof updateIntelligence>[number], string> | undefined;
+    let observerId = "";
+
+    for (let seed = 1; seed <= 64 && !discovery; seed++) {
+      const world = createInitialWorld(seed);
+      world.week = 13;
+      const observer = world.countries[0]!;
+      observer.government.ministries.foreign.competence = 100;
+      observer.policy.diplomacy = 100;
+      const target = selectReconTargetFromBelief(world, observer);
+      if (!target) continue;
+      const subject = world.countries.find((country) => country.id === target.subjectId)!;
+      const partner = world.countries.find((country) => country.id !== observer.id && country.id !== subject.id)!;
+      addSecretNegotiationFixture(world, subject.id, partner.id);
+
+      const messages = updateIntelligence(world);
+      const found = messages.find((message) =>
+        typeof message !== "string"
+        && message.text.startsWith(`${observer.name} intelligence detects confidential security talks`)
+      );
+      if (found && typeof found !== "string") {
+        discovery = found;
+        observerId = observer.id;
+      }
+    }
+
+    expect(discovery).toBeDefined();
+    expect(discovery!.audienceCountryIds).toEqual([observerId]);
+    expect(discovery!.publicText).toBeNull();
+  });
+
+  test("legacy intelligence repairs secret-negotiation knowledge without inventing discoveries", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    const subject = world.countries[1]!;
+    const before = structuredClone(getCountryIntelligence(world, observer.id, subject.id));
+    delete (world.intelligence as Partial<typeof world.intelligence>).secretNegotiationsByObserver;
+
+    ensureIntelligence(world);
+
+    expect(world.intelligence.secretNegotiationsByObserver).toBeDefined();
+    expect(world.intelligence.secretNegotiationsByObserver[observer.id]).toEqual({});
     expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 

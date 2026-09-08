@@ -1,6 +1,6 @@
 import { getCredibility, memorySalience, treatyWithdrawalDecision } from "./diplomacy";
 import { eventTextForObserver } from "./events";
-import { effectiveSecretTreatyConfidence, getSecretTreatyIntelligence } from "./intelligence";
+import { effectiveSecretNegotiationConfidence, effectiveSecretTreatyConfidence, getSecretNegotiationIntelligence, getSecretTreatyIntelligence } from "./intelligence";
 import { diplomaticBandwidth } from "./negotiation";
 import { getActiveTreaties, isNonAggressionActive, registerTreaty } from "./treaties";
 import { getSellerExportableSurplus } from "./trade";
@@ -85,6 +85,11 @@ let observersWithSecretDiscoveries = 0;
 let staleSecretTreatyIntel = 0;
 let secretTreatyStatusDivergences = 0;
 let secretTreatyDiscoveryEvents = 0;
+let discoveredSecretNegotiationIntel = 0;
+let observersWithSecretNegotiationDiscoveries = 0;
+let staleSecretNegotiationIntel = 0;
+let secretNegotiationStatusDivergences = 0;
+let secretNegotiationDiscoveryEvents = 0;
 let concealmentPostures = 0;
 let exaggerationPostures = 0;
 let currentDeceptionAffectedProfiles = 0;
@@ -398,25 +403,40 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     const outsiders = world.countries.filter((country) => !treaty.parties.includes(country.id));
     const exactTreatyId = new RegExp(`${treaty.id}(?!\\d)`);
     const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || exactTreatyId.test(event.text));
-    secretTreatyHistoryEvents += matchingEvents.length;
+    secretTreatyHistoryEvents += matchingEvents.filter((event) =>
+      !event.text.includes(" intelligence detects confidential ")
+      || !event.text.includes(" talks between "),
+    ).length;
     for (const event of matchingEvents) {
-      const discoveryEvent = event.text.includes(" intelligence uncovers ")
+      const treatyDiscoveryEvent = event.text.includes(" intelligence uncovers ")
+        && event.text.includes(" through active reconnaissance of ");
+      const negotiationDiscoveryEvent = event.text.includes(" intelligence detects confidential ")
+        && event.text.includes(" talks between ")
         && event.text.includes(" through active reconnaissance of ");
       const renderedOutsiders = outsiders.filter((outsider) => eventTextForObserver(event, outsider.id) !== null);
-      if (!discoveryEvent) {
+      if (!treatyDiscoveryEvent && !negotiationDiscoveryEvent) {
         invariant(renderedOutsiders.length === 0, `seed ${seed}: secret treaty ${treaty.id} lifecycle leaked outside its parties`);
         continue;
       }
 
-      invariant(renderedOutsiders.length === 1, `seed ${seed}: secret treaty ${treaty.id} discovery was not limited to exactly one outsider`);
+      invariant(renderedOutsiders.length === 1, `seed ${seed}: secret diplomacy discovery for ${treaty.id} was not limited to exactly one outsider`);
       const discoverer = renderedOutsiders[0]!;
-      invariant(event.audienceCountryIds?.length === 1 && event.audienceCountryIds[0] === discoverer.id, `seed ${seed}: secret treaty ${treaty.id} discovery audience drifted`);
-      const discovererKnowledge = Object.values(world.intelligence.secretTreatiesByObserver[discoverer.id] ?? {});
-      const eventNamesExactTreatyId = exactTreatyId.test(event.text);
-      const hasSupportingDiscovery = eventNamesExactTreatyId
-        ? discovererKnowledge.some((intel) => intel.treatyId === treaty.id)
-        : discovererKnowledge.some((intel) => intel.title === treaty.title);
-      invariant(hasSupportingDiscovery, `seed ${seed}: ${discoverer.id} rendered secret treaty discovery without matching stored intelligence`);
+      invariant(event.audienceCountryIds?.length === 1 && event.audienceCountryIds[0] === discoverer.id, `seed ${seed}: secret diplomacy discovery for ${treaty.id} audience drifted`);
+
+      if (treatyDiscoveryEvent) {
+        const discovererKnowledge = Object.values(world.intelligence.secretTreatiesByObserver[discoverer.id] ?? {});
+        const eventNamesExactTreatyId = exactTreatyId.test(event.text);
+        const hasSupportingDiscovery = eventNamesExactTreatyId
+          ? discovererKnowledge.some((intel) => intel.treatyId === treaty.id)
+          : discovererKnowledge.some((intel) => intel.title === treaty.title);
+        invariant(hasSupportingDiscovery, `seed ${seed}: ${discoverer.id} rendered secret treaty discovery without matching stored intelligence`);
+      } else {
+        const negotiationKnowledge = Object.values(world.intelligence.secretNegotiationsByObserver[discoverer.id] ?? {});
+        invariant(
+          negotiationKnowledge.some((intel) => intel.title === treaty.title),
+          `seed ${seed}: ${discoverer.id} rendered precursor secret-talk discovery without matching stored intelligence`,
+        );
+      }
     }
   }
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);
@@ -484,6 +504,21 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(eventTextForObserver(event, country.id) === null, `seed ${seed}: secret-treaty discovery event leaked to ${country.id}`);
     }
   }
+  const negotiationDiscoveryEvents = world.events.filter((event) =>
+    event.text.includes(" intelligence detects confidential ")
+    && event.text.includes(" talks between ")
+    && event.text.includes(" through active reconnaissance of "),
+  );
+  secretNegotiationDiscoveryEvents += negotiationDiscoveryEvents.length;
+  for (const event of negotiationDiscoveryEvents) {
+    invariant(event.audienceCountryIds?.length === 1, `seed ${seed}: secret-negotiation discovery event lost private observer audience`);
+    invariant(event.publicText === null, `seed ${seed}: secret-negotiation discovery event gained public fallback text`);
+    const observerId = event.audienceCountryIds![0]!;
+    for (const country of world.countries) {
+      if (country.id === observerId) continue;
+      invariant(eventTextForObserver(event, country.id) === null, `seed ${seed}: secret-negotiation discovery event leaked to ${country.id}`);
+    }
+  }
 
   for (const event of world.events) {
     if (!event.audienceCountryIds) continue;
@@ -516,6 +551,28 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     if (posture!.mode === "exaggerate") exaggerationPostures++;
   }
   for (const observer of world.countries) {
+    const discoveredNegotiations = getSecretNegotiationIntelligence(world, observer.id);
+    if (discoveredNegotiations.length > 0) observersWithSecretNegotiationDiscoveries++;
+    for (const intel of discoveredNegotiations) {
+      discoveredSecretNegotiationIntel++;
+      invariant(!intel.parties.includes(observer.id), `seed ${seed}: ${observer.name} stored own secret negotiation as foreign discovery`);
+      const negotiation = world.negotiations.find((candidate) => candidate.id === intel.negotiationId);
+      invariant(Boolean(negotiation), `seed ${seed}: discovered secret negotiation ${intel.negotiationId} no longer exists in authoritative ledger`);
+      invariant(negotiation!.visibility === "secret", `seed ${seed}: discovered negotiation ${intel.negotiationId} points to public talks`);
+      invariant(intel.motive === negotiation!.motive, `seed ${seed}: discovered secret negotiation motive drifted`);
+      invariant(intel.parties.length === 2 && intel.parties.every((partyId) => negotiation!.parties.includes(partyId)), `seed ${seed}: discovered secret negotiation parties drifted`);
+      const proposalTitles = negotiation!.proposalIds
+        .map((proposalId) => proposalById(world, proposalId)?.draft.title)
+        .filter((title): title is string => Boolean(title));
+      invariant(proposalTitles.includes(intel.title), `seed ${seed}: discovered secret negotiation title lacks authoritative proposal support`);
+      invariant(intel.discoveredWeek >= 0 && intel.discoveredWeek <= intel.lastConfirmedWeek && intel.lastConfirmedWeek <= world.week, `seed ${seed}: discovered secret negotiation timing is invalid`);
+      const confidence = effectiveSecretNegotiationConfidence(intel, world.week);
+      invariant(Number.isFinite(confidence) && confidence >= 5 && confidence <= 100, `seed ${seed}: discovered secret negotiation confidence is invalid`);
+      const age = world.week - intel.lastConfirmedWeek;
+      if (age > 13) staleSecretNegotiationIntel++;
+      if (intel.status !== negotiation!.status) secretNegotiationStatusDivergences++;
+    }
+
     const discoveredTreaties = getSecretTreatyIntelligence(world, observer.id);
     if (discoveredTreaties.length > 0) observersWithSecretDiscoveries++;
     for (const intel of discoveredTreaties) {
@@ -703,6 +760,11 @@ const summary = {
   staleSecretTreatyIntel,
   secretTreatyStatusDivergences,
   secretTreatyDiscoveryEvents,
+  discoveredSecretNegotiationIntel,
+  observersWithSecretNegotiationDiscoveries,
+  staleSecretNegotiationIntel,
+  secretNegotiationStatusDivergences,
+  secretNegotiationDiscoveryEvents,
   concealmentPostures,
   exaggerationPostures,
   currentDeceptionAffectedProfiles,
@@ -777,6 +839,11 @@ invariant(observersWithSecretDiscoveries > SEEDS.length, "secret-treaty discover
 invariant(secretTreatyDiscoveryEvents > SEEDS.length, "secret-treaty discoveries stopped reaching private observer history");
 invariant(staleSecretTreatyIntel > 0, "secret-treaty intelligence never became stale");
 invariant(secretTreatyStatusDivergences > 0, "secret-treaty snapshots never diverged from live truth; observer belief may be reading authoritative status");
+invariant(discoveredSecretNegotiationIntel > SEEDS.length, "active reconnaissance never built material secret-negotiation knowledge");
+invariant(observersWithSecretNegotiationDiscoveries > SEEDS.length, "secret-negotiation discovery remained isolated to too few observer-worlds");
+invariant(secretNegotiationDiscoveryEvents > SEEDS.length, "secret-negotiation discoveries stopped reaching private observer history");
+invariant(staleSecretNegotiationIntel > 0, "secret-negotiation intelligence never became stale");
+invariant(secretNegotiationStatusDivergences > 0, "secret-negotiation snapshots never diverged from live truth; observer belief may be reading authoritative status");
 invariant(concealmentPostures > 0, "military concealment never appeared in final stress states");
 invariant(exaggerationPostures > 0, "military exaggeration never appeared in final stress states");
 invariant(currentDeceptionAffectedProfiles > SEEDS.length, "military deception stopped affecting current intelligence collection");

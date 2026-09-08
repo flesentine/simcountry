@@ -403,7 +403,10 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     const outsiders = world.countries.filter((country) => !treaty.parties.includes(country.id));
     const exactTreatyId = new RegExp(`${treaty.id}(?!\\d)`);
     const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || exactTreatyId.test(event.text));
-    secretTreatyHistoryEvents += matchingEvents.length;
+    secretTreatyHistoryEvents += matchingEvents.filter((event) =>
+      !event.text.includes(" intelligence detects confidential ")
+      || !event.text.includes(" talks between "),
+    ).length;
     for (const event of matchingEvents) {
       const treatyDiscoveryEvent = event.text.includes(" intelligence uncovers ")
         && event.text.includes(" through active reconnaissance of ");

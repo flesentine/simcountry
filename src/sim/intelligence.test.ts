@@ -150,6 +150,40 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 
+  test("secret treaty truth cannot influence reconnaissance target selection", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 39;
+    const foreign = world.countries.filter((country) => country.id !== observer.id);
+    const target = foreign[2]!;
+
+    for (const subject of foreign) {
+      const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+      for (const estimate of Object.values(profile.estimates)) {
+        estimate.confidence = subject.id === target.id ? 20 : 92;
+        estimate.observedWeek = subject.id === target.id ? 0 : 38;
+      }
+      observer.relations[subject.id]!.tension = subject.id === target.id ? 100 : 0;
+    }
+
+    const before = selectReconTargetFromBelief(world, observer);
+    expect(before?.subjectId).toBe(target.id);
+
+    for (let index = 0; index < foreign.length - 1; index++) {
+      const a = foreign[index]!;
+      const b = foreign[index + 1]!;
+      const result = registerTreaty(world, {
+        title: `Hidden pact ${index}`,
+        parties: [a.id, b.id],
+        visibility: "secret",
+        clauses: [{ kind: "non_aggression" }],
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    expect(selectReconTargetFromBelief(world, observer)).toEqual(before);
+  });
+
   test("secret treaty discovery chance does not inspect target hidden military or economic truth", () => {
     const world = createInitialWorld(1978);
     const observer = world.countries[0]!;

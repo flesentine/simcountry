@@ -342,9 +342,26 @@ export function effectiveSecretTreatyConfidence(intel: SecretTreatyIntelligence,
   return round(clamp(intel.confidence * (0.5 ** (age / 104)), 5, 100));
 }
 
+const SECRET_NEGOTIATION_DISCOVERY_WINDOW = 128;
+
+function negotiationById(world: WorldState, id: string) {
+  const numericId = Number(id.startsWith("negotiation-") ? id.slice("negotiation-".length) : NaN);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const candidate = world.negotiations[numericId - 1];
+    if (candidate?.id === id) return candidate;
+  }
+  return world.negotiations.find((negotiation) => negotiation.id === id);
+}
+
 function negotiationProposal(world: WorldState, negotiation: Negotiation) {
   if (!negotiation.currentProposalId) return undefined;
-  return world.proposals.find((proposal) => proposal.id === negotiation.currentProposalId);
+  const id = negotiation.currentProposalId;
+  const numericId = Number(id.startsWith("proposal-") ? id.slice("proposal-".length) : NaN);
+  if (Number.isInteger(numericId) && numericId > 0) {
+    const candidate = world.proposals[numericId - 1];
+    if (candidate?.id === id) return candidate;
+  }
+  return world.proposals.find((proposal) => proposal.id === id);
 }
 
 export function secretNegotiationDiscoveryChance(
@@ -368,8 +385,16 @@ function collectSecretNegotiationIntelligenceReady(
 ) {
   const observerKnowledge = world.intelligence.secretNegotiationsByObserver[observer.id]!;
   const discoveries: SecretNegotiationIntelligence[] = [];
+  const candidates = new Map<string, Negotiation>();
+  for (const negotiation of world.negotiations.slice(-SECRET_NEGOTIATION_DISCOVERY_WINDOW)) {
+    candidates.set(negotiation.id, negotiation);
+  }
+  for (const negotiationId of Object.keys(observerKnowledge)) {
+    const negotiation = negotiationById(world, negotiationId);
+    if (negotiation) candidates.set(negotiation.id, negotiation);
+  }
 
-  for (const negotiation of world.negotiations) {
+  for (const negotiation of candidates.values()) {
     if (negotiation.visibility !== "secret") continue;
     if (!negotiation.parties.includes(subject.id) || negotiation.parties.includes(observer.id)) continue;
 

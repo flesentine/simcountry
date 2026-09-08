@@ -272,13 +272,12 @@ function secretTreatyIsOperational(treaty: Treaty) {
   return treaty.status === "pending" || treaty.status === "active";
 }
 
-export function collectSecretTreatyIntelligence(
+function collectSecretTreatyIntelligenceReady(
   world: WorldState,
   observer: Country,
   subject: Country,
   observedWeek: number,
 ) {
-  ensureIntelligence(world);
   const observerKnowledge = world.intelligence.secretTreatiesByObserver[observer.id]!;
   const discoveries: SecretTreatyIntelligence[] = [];
 
@@ -309,6 +308,16 @@ export function collectSecretTreatyIntelligence(
   }
 
   return discoveries;
+}
+
+export function collectSecretTreatyIntelligence(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  observedWeek: number,
+) {
+  ensureIntelligence(world);
+  return collectSecretTreatyIntelligenceReady(world, observer, subject, observedWeek);
 }
 
 export function getSecretTreatyIntelligence(world: WorldState, observerId: string) {
@@ -462,7 +471,7 @@ export function updateIntelligence(world: WorldState) {
           reconnaissanceConfidenceBonus(observer),
         );
         assignments.push(`${observer.name}→${subject.name}`);
-        for (const discovery of collectSecretTreatyIntelligence(world, observer, subject, world.week)) {
+        for (const discovery of collectSecretTreatyIntelligenceReady(world, observer, subject, world.week)) {
           const partyNames = discovery.parties
             .map((countryId) => world.countries.find((country) => country.id === countryId)?.name ?? countryId)
             .join(" and ");

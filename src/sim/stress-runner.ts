@@ -400,9 +400,18 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
     const matchingEvents = world.events.filter((event) => event.text.includes(treaty.title) || exactTreatyId.test(event.text));
     secretTreatyHistoryEvents += matchingEvents.length;
     for (const event of matchingEvents) {
-      for (const outsider of outsiders) {
-        invariant(eventTextForObserver(event, outsider.id) === null, `seed ${seed}: secret treaty ${treaty.id} leaked to ${outsider.id}`);
+      const discoveryEvent = event.text.includes(" intelligence uncovers ")
+        && event.text.includes(" through active reconnaissance of ");
+      const renderedOutsiders = outsiders.filter((outsider) => eventTextForObserver(event, outsider.id) !== null);
+      if (!discoveryEvent) {
+        invariant(renderedOutsiders.length === 0, `seed ${seed}: secret treaty ${treaty.id} lifecycle leaked outside its parties`);
+        continue;
       }
+
+      invariant(renderedOutsiders.length === 1, `seed ${seed}: secret treaty ${treaty.id} discovery was not limited to exactly one outsider`);
+      const discoverer = renderedOutsiders[0]!;
+      invariant(event.audienceCountryIds?.length === 1 && event.audienceCountryIds[0] === discoverer.id, `seed ${seed}: secret treaty ${treaty.id} discovery audience drifted`);
+      invariant(Boolean(world.intelligence.secretTreatiesByObserver[discoverer.id]?.[treaty.id]), `seed ${seed}: ${discoverer.id} rendered secret treaty ${treaty.id} without stored discovery intelligence`);
     }
   }
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);

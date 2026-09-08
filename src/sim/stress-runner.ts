@@ -411,7 +411,12 @@ for (let seedIndex = 0; seedIndex < SEEDS.length; seedIndex++) {
       invariant(renderedOutsiders.length === 1, `seed ${seed}: secret treaty ${treaty.id} discovery was not limited to exactly one outsider`);
       const discoverer = renderedOutsiders[0]!;
       invariant(event.audienceCountryIds?.length === 1 && event.audienceCountryIds[0] === discoverer.id, `seed ${seed}: secret treaty ${treaty.id} discovery audience drifted`);
-      invariant(Boolean(world.intelligence.secretTreatiesByObserver[discoverer.id]?.[treaty.id]), `seed ${seed}: ${discoverer.id} rendered secret treaty ${treaty.id} without stored discovery intelligence`);
+      const discovererKnowledge = Object.values(world.intelligence.secretTreatiesByObserver[discoverer.id] ?? {});
+      const eventNamesExactTreatyId = exactTreatyId.test(event.text);
+      const hasSupportingDiscovery = eventNamesExactTreatyId
+        ? discovererKnowledge.some((intel) => intel.treatyId === treaty.id)
+        : discovererKnowledge.some((intel) => intel.title === treaty.title);
+      invariant(hasSupportingDiscovery, `seed ${seed}: ${discoverer.id} rendered secret treaty discovery without matching stored intelligence`);
     }
   }
   maxNegotiationsPerWorld = Math.max(maxNegotiationsPerWorld, world.negotiations.length);

@@ -221,7 +221,9 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(effectiveSecretTreatyConfidence(stale, world.week)).toBeLessThan(stale.confidence);
 
     let reconfirmed = false;
-    for (let week = world.week + 13; week <= world.week + 13 * 80 && !reconfirmed; week += 13) {
+    const reconfirmStart = world.week + 13;
+    const reconfirmDeadline = world.week + 13 * 80;
+    for (let week = reconfirmStart; week <= reconfirmDeadline && !reconfirmed; week += 13) {
       world.week = week;
       collectSecretTreatyIntelligence(world, observer, subject, week);
       const refreshed = getSecretTreatyIntelligence(world, observer.id).find((intel) => intel.treatyId === result.treaty.id)!;

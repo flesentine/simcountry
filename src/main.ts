@@ -232,13 +232,14 @@ function renderForeignIntelligence(selected: Country) {
   const discoveredTreaties = getSecretTreatyIntelligence(world, selected.id)
     .slice()
     .sort((a, b) => b.lastConfirmedWeek - a.lastConfirmedWeek || a.treatyId.localeCompare(b.treatyId));
-  const secretTreatyProfiles = discoveredTreaties.map((intel) => {
+  const displayedSecretTreaties = discoveredTreaties.slice(0, 12);
+  const secretTreatyProfiles = displayedSecretTreaties.map((intel) => {
     const parties = intel.parties.map((countryId) => countryById(countryId)?.name ?? countryId).join(" ↔ ");
     const age = Math.max(0, world.week - intel.lastConfirmedWeek);
     const confidence = effectiveSecretTreatyConfidence(intel, world.week);
     return `<div>
       <span>${escapeHtml(intel.title)} · DISCOVERED SECRET</span>
-      <small>${parties} · last-known status ${intel.status}</small>
+      <small>${parties} · last-known status ${intel.status} · first seen ${weekLabel(intel.discoveredWeek)}</small>
       <small>confidence ${fmt(confidence)}% · confirmed ${age === 0 ? "this week" : `${age}w ago`} · source recon ${countryById(intel.sourceSubjectId)?.name ?? intel.sourceSubjectId}</small>
     </div>`;
   }).join("");
@@ -277,8 +278,9 @@ function renderForeignIntelligence(selected: Country) {
     <h3>Foreign intelligence</h3>
     <p class="muted">${reconSummary}</p>
     <h3>Discovered secret agreements</h3>
+    <p class="muted">${discoveredTreaties.length ? `${discoveredTreaties.length} known · showing ${displayedSecretTreaties.length} most recently confirmed` : "No foreign secret agreements discovered."}</p>
     <div class="relations intelligence-list">
-      ${secretTreatyProfiles || "<p>No foreign secret agreements discovered.</p>"}
+      ${secretTreatyProfiles}
     </div>
     <h3>Country intelligence profiles</h3>
     <div class="relations intelligence-list">

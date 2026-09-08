@@ -335,6 +335,32 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(getCountryIntelligence(world, observer.id, subject.id)).toEqual(before);
   });
 
+  test("secret negotiation truth cannot influence reconnaissance target selection", () => {
+    const world = createInitialWorld(1978);
+    const observer = world.countries[0]!;
+    world.week = 39;
+    const foreign = world.countries.filter((country) => country.id !== observer.id);
+    const target = foreign[2]!;
+
+    for (const subject of foreign) {
+      const profile = getCountryIntelligence(world, observer.id, subject.id)!;
+      for (const estimate of Object.values(profile.estimates)) {
+        estimate.confidence = subject.id === target.id ? 20 : 92;
+        estimate.observedWeek = subject.id === target.id ? 0 : 38;
+      }
+      observer.relations[subject.id]!.tension = subject.id === target.id ? 100 : 0;
+    }
+
+    const before = selectReconTargetFromBelief(world, observer);
+    expect(before?.subjectId).toBe(target.id);
+
+    for (let index = 0; index < foreign.length - 1; index++) {
+      addSecretNegotiationFixture(world, foreign[index]!.id, foreign[index + 1]!.id);
+    }
+
+    expect(selectReconTargetFromBelief(world, observer)).toEqual(before);
+  });
+
   test("secret negotiation discovery chance does not inspect target hidden military or economic truth", () => {
     const world = createInitialWorld(1978);
     const observer = world.countries[0]!;
@@ -393,7 +419,9 @@ describe("Phase 5.0 subjective intelligence", () => {
     expect(effectiveSecretNegotiationConfidence(stale, world.week)).toBeLessThan(stale.confidence);
 
     let reconfirmed = false;
-    for (let week = world.week + 13; week <= world.week + 13 * 80 && !reconfirmed; week += 13) {
+    const reconfirmDeadline = world.week + 13 * 80;
+    for (let week = world.week + 13; week <= reconfirmDeadline && !reconfirmed; week += 13) {
+      world.week = week;
       collectSecretNegotiationIntelligence(world, observer, subject, week);
       const refreshed = getSecretNegotiationIntelligence(world, observer.id)
         .find((intel) => intel.negotiationId === negotiation.id)!;

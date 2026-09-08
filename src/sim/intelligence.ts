@@ -6,7 +6,9 @@ import type {
   IntelligenceEstimate,
   IntelligenceMetric,
   MilitaryDeceptionPosture,
+  Negotiation,
   Resource,
+  SecretNegotiationIntelligence,
   SecretTreatyIntelligence,
   Treaty,
   WorldState,
@@ -55,6 +57,17 @@ function secretTreatyDiscoveryRng(world: WorldState, observerId: string, treatyI
     ^ Math.imul(hashString(treatyId), 0x85ebca6b)
     ^ Math.imul(observedWeek + 1, 0xc2b2ae35)
     ^ 0x51f15e5d
+  ) >>> 0;
+  return createRng(mixed || 1);
+}
+
+function secretNegotiationDiscoveryRng(world: WorldState, observerId: string, negotiationId: string, observedWeek: number) {
+  const mixed = (
+    (world.seed >>> 0)
+    ^ Math.imul(hashString(observerId), 0x27d4eb2d)
+    ^ Math.imul(hashString(negotiationId), 0x165667b1)
+    ^ Math.imul(observedWeek + 1, 0x9e3779b1)
+    ^ 0x4e45474f
   ) >>> 0;
   return createRng(mixed || 1);
 }
@@ -329,6 +342,85 @@ export function effectiveSecretTreatyConfidence(intel: SecretTreatyIntelligence,
   return round(clamp(intel.confidence * (0.5 ** (age / 104)), 5, 100));
 }
 
+function negotiationProposal(world: WorldState, negotiation: Negotiation) {
+  if (!negotiation.currentProposalId) return undefined;
+  return world.proposals.find((proposal) => proposal.id === negotiation.currentProposalId);
+}
+
+export function secretNegotiationDiscoveryChance(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  negotiation: Negotiation,
+  alreadyKnown = false,
+) {
+  const confidence = secretTreatyDiscoveryConfidence(world, observer, subject);
+  const ageWeeks = Math.max(0, world.week - negotiation.startedWeek);
+  const ageBonus = Math.min(0.06, ageWeeks / 104 * 0.06);
+  return Math.min(0.58, 0.05 + confidence / 100 * 0.31 + ageBonus + (alreadyKnown ? 0.14 : 0));
+}
+
+function collectSecretNegotiationIntelligenceReady(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  observedWeek: number,
+) {
+  const observerKnowledge = world.intelligence.secretNegotiationsByObserver[observer.id]!;
+  const discoveries: SecretNegotiationIntelligence[] = [];
+
+  for (const negotiation of world.negotiations) {
+    if (negotiation.visibility !== "secret") continue;
+    if (!negotiation.parties.includes(subject.id) || negotiation.parties.includes(observer.id)) continue;
+
+    const existing = observerKnowledge[negotiation.id];
+    if (!existing && negotiation.status !== "open") continue;
+
+    const proposal = negotiationProposal(world, negotiation);
+    if (!existing && !proposal) continue;
+
+    const chance = secretNegotiationDiscoveryChance(world, observer, subject, negotiation, Boolean(existing));
+    const rng = secretNegotiationDiscoveryRng(world, observer.id, negotiation.id, observedWeek);
+    if (rng.next() > chance) continue;
+
+    const confidence = secretTreatyDiscoveryConfidence(world, observer, subject);
+    const snapshot: SecretNegotiationIntelligence = {
+      negotiationId: negotiation.id,
+      title: proposal?.draft.title ?? existing!.title,
+      parties: [...negotiation.parties] as [string, string],
+      motive: negotiation.motive,
+      status: negotiation.status,
+      discoveredWeek: existing?.discoveredWeek ?? observedWeek,
+      lastConfirmedWeek: observedWeek,
+      confidence,
+      sourceSubjectId: subject.id,
+    };
+    observerKnowledge[negotiation.id] = snapshot;
+    if (!existing) discoveries.push(snapshot);
+  }
+
+  return discoveries;
+}
+
+export function collectSecretNegotiationIntelligence(
+  world: WorldState,
+  observer: Country,
+  subject: Country,
+  observedWeek: number,
+) {
+  ensureIntelligence(world);
+  return collectSecretNegotiationIntelligenceReady(world, observer, subject, observedWeek);
+}
+
+export function getSecretNegotiationIntelligence(world: WorldState, observerId: string) {
+  return Object.values(world.intelligence?.secretNegotiationsByObserver?.[observerId] ?? {});
+}
+
+export function effectiveSecretNegotiationConfidence(intel: SecretNegotiationIntelligence, currentWeek: number) {
+  const age = Math.max(0, currentWeek - intel.lastConfirmedWeek);
+  return round(clamp(intel.confidence * (0.5 ** (age / 78)), 5, 100));
+}
+
 export function collectCountryIntelligence(
   world: WorldState,
   observer: Country,
@@ -347,7 +439,7 @@ export function collectCountryIntelligence(
 }
 
 export function initializeIntelligence(world: WorldState) {
-  world.intelligence = { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {} };
+  world.intelligence = { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {}, secretNegotiationsByObserver: {} };
   updateMilitaryDeceptionPostures(world);
   for (const observer of world.countries) {
     const subjects: Record<string, CountryIntelligence> = {};
@@ -358,15 +450,17 @@ export function initializeIntelligence(world: WorldState) {
     world.intelligence.byObserver[observer.id] = subjects;
     world.intelligence.reconByObserver[observer.id] = null;
     world.intelligence.secretTreatiesByObserver[observer.id] = {};
+    world.intelligence.secretNegotiationsByObserver[observer.id] = {};
   }
   return world.intelligence;
 }
 
 export function ensureIntelligence(world: WorldState) {
-  world.intelligence ??= { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {} };
+  world.intelligence ??= { byObserver: {}, reconByObserver: {}, deceptionByCountry: {}, secretTreatiesByObserver: {}, secretNegotiationsByObserver: {} };
   world.intelligence.reconByObserver ??= {};
   world.intelligence.deceptionByCountry ??= {};
   world.intelligence.secretTreatiesByObserver ??= {};
+  world.intelligence.secretNegotiationsByObserver ??= {};
   for (const country of world.countries) {
     world.intelligence.deceptionByCountry[country.id] ??= militaryDeceptionPostureFor(world, country);
   }
@@ -374,6 +468,7 @@ export function ensureIntelligence(world: WorldState) {
     const subjects = world.intelligence.byObserver[observer.id] ?? (world.intelligence.byObserver[observer.id] = {});
     world.intelligence.reconByObserver[observer.id] ??= null;
     world.intelligence.secretTreatiesByObserver[observer.id] ??= {};
+    world.intelligence.secretNegotiationsByObserver[observer.id] ??= {};
     for (const subject of world.countries) {
       if (subject.id === observer.id) {
         delete subjects[subject.id];
@@ -477,6 +572,16 @@ export function updateIntelligence(world: WorldState) {
             .join(" and ");
           events.push({
             text: `${observer.name} intelligence uncovers ${discovery.title} between ${partyNames} through active reconnaissance of ${subject.name}.`,
+            audienceCountryIds: [observer.id],
+            publicText: null,
+          });
+        }
+        for (const discovery of collectSecretNegotiationIntelligenceReady(world, observer, subject, world.week)) {
+          const partyNames = discovery.parties
+            .map((countryId) => world.countries.find((country) => country.id === countryId)?.name ?? countryId)
+            .join(" and ");
+          events.push({
+            text: `${observer.name} intelligence detects confidential ${discovery.motive} talks between ${partyNames}: ${discovery.title}, through active reconnaissance of ${subject.name}.`,
             audienceCountryIds: [observer.id],
             publicText: null,
           });
